@@ -10,7 +10,9 @@ Back up the catalog using SQLite's backup API, or stop both services before copy
 
 The default listener is localhost. For ordinary network exposure, configure a strong `REOUI_AUTH_TOKEN` and an HTTPS reverse proxy. The UI exchanges the token for an HttpOnly session cookie. All camera snapshots and live segments use the same application authentication.
 
-Set `REOUI_TRUSTED_PROXIES` to the actual proxy peer address seen inside the app container. Docker forwarding may appear as the Docker network gateway rather than `127.0.0.1`. Keep proxy Host/Origin headers consistent so same-origin edits work. Avoid wildcard trust.
+Set `REOUI_PUBLIC_ORIGIN` in `.env` to the exact origin used in your browser, for example `https://reoui.example.com` (include the port if nonstandard; omit paths). Recreate the app container after changing it: `docker compose up -d app`. This lets POST and PATCH requests pass the same-origin check even when the proxy connects over HTTP or rewrites the Host header. Other origins remain blocked. Without this setting, the app compares the browser Origin against the request scheme and Host.
+
+Set `REOUI_TRUSTED_PROXIES` to the actual proxy peer address seen inside the app container, and have the proxy send `X-Forwarded-Proto` for the original scheme. Docker forwarding may appear as the Docker network gateway rather than `127.0.0.1`. Avoid wildcard trust. When running outside Compose, Uvicorn uses `FORWARDED_ALLOW_IPS` for this setting.
 
 ### Tailscale
 

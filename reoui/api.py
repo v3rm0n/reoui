@@ -67,12 +67,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not authorized(request):
                 return JSONResponse({"detail": "Sign in to view the archive"}, status_code=401)
         origin = request.headers.get("origin")
-        if (
-            request.method not in ("GET", "HEAD", "OPTIONS")
-            and origin
-            and origin != f"{request.url.scheme}://{request.headers.get('host')}"
-        ):
-            # Vite's development proxy retains the browser host in normal operation.
+        expected_origin = settings.public_origin or f"{request.url.scheme}://{request.headers.get('host')}"
+        if request.method not in ("GET", "HEAD", "OPTIONS") and origin and origin != expected_origin:
             return JSONResponse({"detail": "Cross-origin changes are not allowed"}, status_code=403)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"

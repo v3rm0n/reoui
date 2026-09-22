@@ -123,6 +123,7 @@ Select **Watch live** to start a stream. Live video uses the camera's existing s
 | `REOUI_CAMERAS_FILE` | `./.secrets/cameras.json` | Camera connection configuration |
 | `REOUI_BIND` / `REOUI_PORT` | `127.0.0.1` / `8090` | Host interface and port |
 | `REOUI_AUTH_TOKEN` | Empty | Optional application access token |
+| `REOUI_PUBLIC_ORIGIN` | Empty | Browser-facing origin for reverse-proxy deployments, e.g. `https://reoui.example.com` |
 | `REOUI_TRUSTED_PROXIES` | `127.0.0.1` | Exact proxy peers trusted for forwarded headers |
 | `REOUI_TIMEZONE` | `Europe/Tallinn` | Filename interpretation and display timezone |
 | `REOUI_CACHE_BYTES` | `200000000000` | Accounted derivative cache limit, about 200 GB |

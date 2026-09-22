@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 
@@ -21,6 +22,7 @@ class Settings:
     auto_proxy_hours: int = 24
     web: Path = Path("frontend/dist")
     auth_token: str = ""
+    public_origin: str = ""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -40,10 +42,23 @@ class Settings:
             auto_proxy_hours=int(os.environ.get("REOUI_AUTO_PROXY_HOURS", "24")),
             web=Path(os.environ.get("REOUI_WEB", "frontend/dist")),
             auth_token=os.environ.get("REOUI_AUTH_TOKEN", ""),
+            public_origin=os.environ.get("REOUI_PUBLIC_ORIGIN", "").strip().rstrip("/"),
         )
 
     def prepare(self) -> None:
         ZoneInfo(self.timezone)
+        if self.public_origin:
+            origin = urlsplit(self.public_origin)
+            if (
+                origin.scheme not in ("http", "https")
+                or not origin.hostname
+                or origin.username is not None
+                or origin.password is not None
+                or origin.path
+                or origin.query
+                or origin.fragment
+            ):
+                raise ValueError("REOUI_PUBLIC_ORIGIN must be an HTTP(S) origin without a path")
         if self.cache_bytes < 0:
             raise ValueError("Cache budget must be nonnegative")
         # Never stat a possibly disconnected archive from the web process.

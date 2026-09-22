@@ -30,6 +30,7 @@ services:
     environment:
       <<: *environment
       REOUI_AUTH_TOKEN: ${REOUI_AUTH_TOKEN:-}
+      REOUI_PUBLIC_ORIGIN: ${REOUI_PUBLIC_ORIGIN:-}
       FORWARDED_ALLOW_IPS: ${REOUI_TRUSTED_PROXIES:-127.0.0.1}
     volumes:
       - type: bind
