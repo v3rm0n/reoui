@@ -1,0 +1,10 @@
+{
+  "cameras": [
+    {
+      "host": "192.0.2.10",
+      "username": "admin",
+      "password": "replace-locally",
+      "folder": "garden"
+    }
+  ]
+}
