@@ -46,20 +46,31 @@ function Archive() {
   const [selectedId,setSelectedId] = useState(initial.current.get('clip') || '');
   const [timeline,setTimeline] = useState<Timeline | null>(null);
   const [error,setError] = useState(''); const [toast,setToast] = useState('');
-  const initialized = useRef(false); const [refresh,setRefresh] = useState(0);
+  const [dayPinned,setDayPinned] = useState(initial.current.has('day')||initial.current.has('clip'));
+  const followingLatestDay = useRef(!initial.current.has('day')&&!initial.current.has('clip'));
+  const [refresh,setRefresh] = useState(0);
   const timezone = status?.timezone || 'Europe/Tallinn';
   const tell = (message: string) => setToast(message);
 
   const loadStatus = useCallback(() => {
     Promise.all([api<Status>('/status'),api<Camera[]>('/cameras')]).then(([s,c])=>{
       setStatus(s); setCameras(c); setError('');
-      if (!initialized.current) { initialized.current=true; if (!initial.current.has('day') && s.counts.last_day) setDay(s.counts.last_day); }
     }).catch(e=>setError(e.message));
   },[]);
   useEffect(()=>{loadStatus();const timer=setInterval(loadStatus,5000);return()=>clearInterval(timer);},[loadStatus]);
   useEffect(()=>{const timer=setTimeout(()=>setQuery(search),200);return()=>clearTimeout(timer);},[search]);
   useEffect(()=>{if (!toast) return; const timer=setTimeout(()=>setToast(''),4500);return()=>clearTimeout(timer);},[toast]);
-  useEffect(()=>{api<{day:string;count:number}[]>(`/dates?${new URLSearchParams(camera?{camera}:{})}`).then(setDates).catch(e=>setError(e.message));},[camera,status?.counts.recordings]);
+  useEffect(()=>{
+    let canceled=false;
+    api<{day:string;count:number}[]>(`/dates?${new URLSearchParams(camera?{camera}:{})}`).then(result=>{
+      if(canceled)return;
+      setDates(result);
+      if(followingLatestDay.current && result[0]?.day && result[0].day!==day){
+        setDay(result[0].day);setSelectedId('');setSelected(null);
+      }
+    }).catch(e=>{if(!canceled)setError(e.message);});
+    return()=>{canceled=true;};
+  },[camera,status?.counts.recordings]);
 
   const params = useCallback(()=>{
     const p = new URLSearchParams({limit:'36'});
@@ -90,19 +101,20 @@ function Archive() {
   },[day,camera,status?.counts.recordings,status?.counts.previews]);
 
   useEffect(()=>{
-    const p=new URLSearchParams();if(camera)p.set('camera',camera);if(day)p.set('day',day);if(event)p.set('event',event);if(selectedId)p.set('clip',selectedId);
+    const p=new URLSearchParams();if(camera)p.set('camera',camera);if(day&&dayPinned)p.set('day',day);if(event)p.set('event',event);if(selectedId)p.set('clip',selectedId);
     history.replaceState(null,'',`${location.pathname}${p.size?'?'+p:''}`);
-  },[camera,day,event,selectedId]);
+  },[camera,day,dayPinned,event,selectedId]);
 
-  function changeCamera(id:string) {setCamera(id);setSelectedId('');setMobile(false);}
-  function choose(recording:Recording) {setSelected(recording);setSelectedId(recording.id);}
+  function changeCamera(id:string) {setCamera(id);setSelectedId('');setSelected(null);setMobile(false);}
+  function choose(recording:Recording) {followingLatestDay.current=false;setDayPinned(true);setSelected(recording);setSelectedId(recording.id);}
+  function pinDay(value:string) {followingLatestDay.current=false;setDayPinned(true);setDay(value);setSelectedId('');setSelected(null);}
   async function bookmark(recording:Recording) {
     try {await api(`/recordings/${recording.id}`,{method:'PATCH',body:JSON.stringify({bookmarked:!recording.bookmarked})});
       setRefresh(n=>n+1);tell(recording.bookmarked?'Bookmark removed':'Recording bookmarked');
     }catch(e){setError((e as Error).message);}
   }
   function moveDay(direction:number) {
-    const index=dates.findIndex(d=>d.day===day);const next=dates[index+direction];if(next){setDay(next.day);setSelectedId('');}
+    const index=dates.findIndex(d=>d.day===day);const next=dates[index+direction];if(next)pinDay(next.day);
   }
   const current = selected || page.items[0] || null;
   const currentCamera=cameras.find(c=>c.id===current?.camera_id);
@@ -131,9 +143,9 @@ function Archive() {
       {error&&<div className="notice error-notice" role="alert"><Info size={17}/><span>{error}</span><button className="icon-button" aria-label="Dismiss error" onClick={()=>setError('')}><X size={15}/></button></div>}
       {view==='live'?<Suspense fallback={<div className="loading-panel"><LoaderCircle className="spin"/><p>Opening live view…</p></div>}><LiveView cameras={cameras} onRecordings={id=>{changeCamera(id);setView('archive');}}/></Suspense>:view==='status'?<><StatusView status={status} onScan={()=>api('/index',{method:'POST'}).then(()=>{tell('Archive scan queued');loadStatus();}).catch(e=>setError(e.message))}/><details className="connection-details"><summary>Camera connections & metadata</summary><CamerasView cameras={cameras} onUpdate={()=>{loadStatus();setRefresh(n=>n+1);}} onError={setError}/></details></>:<>
         <div className="page-heading"><div className="eyebrow"><span/> YOUR MOMENTS, ORGANIZED</div><div className="heading-row"><div><h1>{view==='bookmarks'?'Bookmarked moments':'Recording archive'}</h1><p>{view==='bookmarks'?'The recordings you want to come back to.':'A clear view of everything that happened.'}</p></div><button className="secondary scan-button" onClick={()=>api('/index',{method:'POST'}).then(()=>tell('Archive scan queued')).catch(e=>setError(e.message))}><RefreshCw size={15} className={status?.scan.status==='running'?'spin':''}/>{status?.scan.status==='running'?'Indexing…':'Scan archive'}</button></div></div>
-        <div className="filters"><div className="date-controls"><button className="icon-button" aria-label="Previous recording day" disabled={!dates.length||dates.findIndex(d=>d.day===day)>=dates.length-1} onClick={()=>moveDay(1)}><ChevronLeft size={17}/></button><label className="date-picker"><CalendarDays size={16}/><span>{dayLabel(day)}</span><input type="date" aria-label="Recording date" value={day} onChange={e=>{setDay(e.target.value);setSelectedId('');}}/><ChevronDown size={13}/></label><button className="icon-button" aria-label="Next recording day" disabled={dates.findIndex(d=>d.day===day)<=0} onClick={()=>moveDay(-1)}><ChevronRight size={17}/></button>{day&&<button className="text-button all-dates" onClick={()=>{setDay('');setSelectedId('');}}>All dates</button>}</div><div className="filter-right"><span className="camera-filter-label"><CameraIcon size={15}/>{activeCamera?.name||'All cameras'}</span><div className="search-box"><Search size={16}/><input placeholder="Search recordings…" aria-label="Search recordings" value={search} onChange={e=>{setSearch(e.target.value);setSelectedId('');setSelected(null);}}/>{search&&<button className="icon-button" aria-label="Clear search" onClick={()=>setSearch('')}><X size={13}/></button>}</div></div></div>
+        <div className="filters"><div className="date-controls"><button className="icon-button" aria-label="Previous recording day" disabled={!dates.length||dates.findIndex(d=>d.day===day)>=dates.length-1} onClick={()=>moveDay(1)}><ChevronLeft size={17}/></button><label className="date-picker"><CalendarDays size={16}/><span>{dayLabel(day)}</span><input type="date" aria-label="Recording date" value={day} onChange={e=>pinDay(e.target.value)}/><ChevronDown size={13}/></label><button className="icon-button" aria-label="Next recording day" disabled={dates.findIndex(d=>d.day===day)<=0} onClick={()=>moveDay(-1)}><ChevronRight size={17}/></button>{day&&<button className="text-button all-dates" onClick={()=>pinDay('')}>All dates</button>}</div><div className="filter-right"><span className="camera-filter-label"><CameraIcon size={15}/>{activeCamera?.name||'All cameras'}</span><div className="search-box"><Search size={16}/><input placeholder="Search recordings…" aria-label="Search recordings" value={search} onChange={e=>{setSearch(e.target.value);setSelectedId('');setSelected(null);}}/>{search&&<button className="icon-button" aria-label="Clear search" onClick={()=>setSearch('')}><X size={13}/></button>}</div></div></div>
         <div className="event-filters"><span className="filter-caption"><SlidersHorizontal size={14}/> Show</span>{['','person','vehicle','animal','motion'].map(type=><button className={`event-filter ${event===type?'selected':''}`} key={type} onClick={()=>{setEvent(type);setSelectedId('');}}>{type?eventIcon(type,14):<LayoutGrid size={14}/>} {type?labels[type]:'All recordings'}</button>)}<select aria-label="More event filters" value={['','person','vehicle','animal','motion'].includes(event)?'':event} onChange={e=>{setEvent(e.target.value);setSelectedId('');}}><option value="">More events</option>{Array.from(new Set(['doorbell','package','unknown',...allTypes])).filter(k=>!['person','vehicle','animal','motion'].includes(k)).map(k=><option key={k} value={k}>{labels[k]||k}</option>)}</select><span className="event-filters-end">{status?.counts.previews.toLocaleString()||0} previews ready</span></div>
-        {!current&&loading?<div className="loading-panel"><LoaderCircle className="spin"/><p>Finding your recordings…</p></div>:!current?<EmptyArchive hasRecordings={!!status?.counts.recordings} source={status?.source.available} pending={status?.scan.status==='running'} clear={()=>{setEvent('');setDay('');setSearch('');setCamera('');}}/>:
+        {!current&&loading?<div className="loading-panel"><LoaderCircle className="spin"/><p>Finding your recordings…</p></div>:!current?<EmptyArchive hasRecordings={!!status?.counts.recordings} source={status?.source.available} pending={status?.scan.status==='running'} clear={()=>{setEvent('');pinDay('');setSearch('');setCamera('');}}/>:
         <><div className="viewer-layout"><Player key={`player-${current.id}`} recording={current} timezone={timezone} onBookmark={()=>bookmark(current)} onPrepared={()=>{setSelectedId(current.id);setRefresh(n=>n+1);}} onError={setError}/><Details key={`details-${current.id}`} recording={current} camera={currentCamera} timezone={timezone} onSave={()=>{setRefresh(n=>n+1);tell('Note saved');}} onError={setError}/></div>
         <div className="timeline-panel"><div className="section-heading"><div><Clock3 size={16}/><h2>Day at a glance</h2><span className="subtle">{day?dayLabel(day):'Choose a date to see recording coverage'}</span></div><div className="timeline-legend"><span><i/>Recording</span><span><i className="event"/>Event tagged</span></div></div>
           {timeline&&timeline.lanes.length>0?<div className="timeline-content"><div className="timeline-hours"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>{timeline.lanes.map(lane=><div className="timeline-lane" key={lane.camera}><span title={cameras.find(c=>c.id===lane.camera)?.name}>{cameras.find(c=>c.id===lane.camera)?.name}</span><div className="timeline-track">{lane.bins.map((count,i)=><button aria-label={`${cameras.find(c=>c.id===lane.camera)?.name}, ${clock(timeline.start+i*timeline.bin_seconds,timezone)}, ${count} recordings`} title={`${clock(timeline.start+i*timeline.bin_seconds,timezone)} · ${count} recordings`} key={i} className={count?'filled':''} style={count?{background:lane.events[i]?'#d8bd85':lane.color,opacity:0.45+Math.min(count,5)/10}:undefined} disabled={!count} onClick={()=>{if(lane.first[i])setSelectedId(lane.first[i]!);}}/>)}</div></div>)}</div>:<div className="timeline-empty">{day?'No timed recordings for this selection.':'Select a recording date above to explore the timeline.'}</div>}

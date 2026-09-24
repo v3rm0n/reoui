@@ -71,7 +71,7 @@ Build and start:
 docker compose up -d --build
 ```
 
-Open **http://localhost:8090**. Discovery and preview generation continue in the background; large imports take time. Follow progress in **Indexing & storage**.
+Open **http://localhost:8090**. Discovery and preview generation continue in the background; large imports take time. The worker checks the newest files every 30 seconds after a 30-second stability window, so a finalized recent recording normally appears within about a minute plus scan time. A full scan runs at startup and every 15 minutes to catch older or unusually named arrivals. Follow progress in **Indexing & storage**.
 
 ### Use the published image
 
@@ -127,9 +127,10 @@ Select **Watch live** to start a stream. Live video uses the camera's existing s
 | `REOUI_TRUSTED_PROXIES` | `127.0.0.1` | Exact proxy peers trusted for forwarded headers |
 | `REOUI_TIMEZONE` | `Europe/Tallinn` | Filename interpretation and display timezone |
 | `REOUI_CACHE_BYTES` | `200000000000` | Accounted derivative cache limit, about 200 GB |
-| `REOUI_SCAN_INTERVAL` | `900` | Seconds between archive scans |
+| `REOUI_SCAN_INTERVAL` | `30` | Seconds between scans of the newest archive files |
+| `REOUI_FULL_SCAN_INTERVAL` | `900` | Seconds between full archive scans |
 | `REOUI_CAMERA_INTERVAL` | `300` | Seconds between routine metadata refreshes |
-| `REOUI_STABLE_SECONDS` | `60` | Minimum file age before processing |
+| `REOUI_STABLE_SECONDS` | `30` | Minimum time since a file changed before indexing |
 | `REOUI_SCAN_TIMEOUT` | `180` | Maximum seconds without scan progress |
 | `REOUI_AUTO_PROXY_HOURS` | `24` | Automatically prepare recent incompatible clips; `0` disables |
 

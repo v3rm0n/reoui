@@ -15,8 +15,9 @@ class Settings:
     cameras_file: Path | None = None
     timezone: str = "Europe/Tallinn"
     cache_bytes: int = 200_000_000_000
-    stable_seconds: int = 60
-    scan_interval: int = 900
+    stable_seconds: int = 30
+    scan_interval: int = 30
+    full_scan_interval: int = 900
     camera_interval: int = 300
     scan_timeout: int = 180
     auto_proxy_hours: int = 24
@@ -35,8 +36,9 @@ class Settings:
             else None,
             timezone=os.environ.get("REOUI_TIMEZONE", "Europe/Tallinn"),
             cache_bytes=int(os.environ.get("REOUI_CACHE_BYTES", "200000000000")),
-            stable_seconds=int(os.environ.get("REOUI_STABLE_SECONDS", "60")),
-            scan_interval=int(os.environ.get("REOUI_SCAN_INTERVAL", "900")),
+            stable_seconds=int(os.environ.get("REOUI_STABLE_SECONDS", "30")),
+            scan_interval=int(os.environ.get("REOUI_SCAN_INTERVAL", "30")),
+            full_scan_interval=int(os.environ.get("REOUI_FULL_SCAN_INTERVAL", "900")),
             camera_interval=int(os.environ.get("REOUI_CAMERA_INTERVAL", "300")),
             scan_timeout=int(os.environ.get("REOUI_SCAN_TIMEOUT", "180")),
             auto_proxy_hours=int(os.environ.get("REOUI_AUTO_PROXY_HOURS", "24")),

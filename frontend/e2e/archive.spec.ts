@@ -61,3 +61,37 @@ test('camera and date selection, empty state, and scrub previews',async({page},t
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
   await page.screenshot({path:`test-results/archive-${testInfo.project.name}.png`,fullPage:true});
 });
+
+test('new recording day appears without refreshing the page',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='desktop');
+  let added=false;
+  await page.route('**/api/status',async route=>{
+    const response=await route.fetch();
+    const body=await response.json();
+    if(added){body.counts.recordings+=1;body.counts.last_day='2026-09-19';}
+    await route.fulfill({response,json:body});
+  });
+  await page.route('**/api/dates*',async route=>{
+    const response=await route.fetch();
+    const body=await response.json();
+    if(added)body.unshift({day:'2026-09-19',count:1});
+    await route.fulfill({response,json:body});
+  });
+  await page.route('**/api/recordings?*',async route=>{
+    if(!added||!new URL(route.request().url()).searchParams.has('day')||!route.request().url().includes('2026-09-19')){
+      await route.continue();return;
+    }
+    const url=new URL(route.request().url());url.searchParams.set('day','2026-09-18');
+    const response=await route.fetch({url:url.toString()});
+    const body=await response.json();
+    body.items=body.items.slice(0,1).map((item:Record<string,unknown>)=>({...item,local_day:'2026-09-19'}));
+    body.next_cursor=null;
+    await route.fulfill({response,json:body});
+  });
+  await page.goto('/');
+  await expect(page.locator('.recording-card')).toHaveCount(6);
+  await expect(page.getByLabel('Recording date')).toHaveValue('2026-09-18');
+  added=true;
+  await expect(page.getByLabel('Recording date')).toHaveValue('2026-09-19',{timeout:10000});
+  await expect(page.locator('.recording-card')).toHaveCount(1);
+});

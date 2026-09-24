@@ -14,6 +14,8 @@ from .config import Settings
 from .db import connect, enqueue, get_state, initialize, set_state
 from .live import LiveManager
 
+RECENT_SCAN_LIMIT = 5000
+
 
 def claim(settings: Settings, exclude: tuple[str, ...] = ()):
     with connect(settings) as conn:
@@ -73,15 +75,20 @@ async def run(settings: Settings, once: bool = False):
     collector = asyncio.create_task(camera_loop(settings, stop)) if not once else None
     processes: dict[str, tuple] = {}
     live = LiveManager(settings)
-    next_scan = 0
+    next_recent_scan = float("inf")
+    next_full_scan = 0
     try:
         while not stop.is_set():
             now = time.time()
             live.tick()
             set_state(settings, "worker", {"heartbeat": now, "active": list(processes)})
-            if now >= next_scan:
+            if now >= next_full_scan:
                 enqueue(settings, "scan", priority=5)
-                next_scan = now + settings.scan_interval
+                next_full_scan = float("inf")
+                next_recent_scan = float("inf")
+            elif now >= next_recent_scan:
+                enqueue(settings, "scan", "recent", priority=5)
+                next_recent_scan = float("inf")
             for lane, (process, job, start, timeout) in list(processes.items()):
                 code = process.poll()
                 last_progress = start
@@ -111,6 +118,13 @@ async def run(settings: Settings, once: bool = False):
                             (error, job["target"]),
                         )
                 processes.pop(lane)
+                if lane == "scan":
+                    # Space scans from completion, including long archive walks.
+                    if job["target"] != "recent":
+                        next_full_scan = now + settings.full_scan_interval
+                        next_recent_scan = now + settings.scan_interval
+                    elif next_full_scan != float("inf"):
+                        next_recent_scan = now + settings.scan_interval
                 if not error and job["kind"] == "prepare" and settings.auto_proxy_hours > 0:
                     with connect(settings) as conn:
                         row = conn.execute(
@@ -139,8 +153,12 @@ async def run(settings: Settings, once: bool = False):
             if job:
                 kind = job["kind"]
                 command = [sys.executable, "-m", "reoui.cli", kind]
-                if job["target"]:
+                if kind == "scan" and job["target"] == "recent":
+                    command += ["--limit", str(RECENT_SCAN_LIMIT)]
+                elif job["target"]:
                     command += [job["target"]]
+                if kind == "scan" and job["target"] != "recent":
+                    next_recent_scan = float("inf")
                 if kind == "prepare":
                     with connect(settings) as conn:
                         conn.execute("UPDATE recordings SET status='processing' WHERE id=?", (job["target"],))

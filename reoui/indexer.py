@@ -93,17 +93,20 @@ def walk_recent(root: Path):
 
 
 def walk_archive(root: Path):
-    """Interleave camera folders so the initial catalog includes every camera."""
+    """Interleave camera folders and root files, newest names first."""
     with os.scandir(root) as entries:
-        items = sorted(entries, key=lambda e: e.name)
+        items = sorted(entries, key=lambda e: e.name, reverse=True)
     streams = []
+    root_files = []
     for entry in items:
         if entry.name.startswith(".") or entry.is_symlink():
             continue
         if entry.is_dir(follow_symlinks=False):
             streams.append(iter(walk_recent(Path(entry.path))))
         elif Path(entry.name).suffix.lower() in VIDEO_EXTENSIONS and entry.is_file(follow_symlinks=False):
-            yield Path(entry.path), entry.stat(follow_symlinks=False)
+            root_files.append(entry)
+    if root_files:
+        streams.append(((Path(entry.path), entry.stat(follow_symlinks=False)) for entry in root_files))
     while streams:
         for stream in tuple(streams):
             try:
