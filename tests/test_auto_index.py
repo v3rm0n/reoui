@@ -46,6 +46,7 @@ def test_worker_indexes_recording_added_after_startup(settings):
         stderr=subprocess.PIPE,
     )
     try:
+
         def first_scan_complete():
             with connect(settings) as conn:
                 return (
