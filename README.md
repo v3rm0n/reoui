@@ -5,6 +5,16 @@
 
 ReoUI is a web interface for browsing recordings in an existing Reolink backup directory.
 
+## Screenshots
+
+### Recordings
+
+![Recording archive with video playback, timeline, and camera recordings](docs/screenshots/recordings.png)
+
+### Live view
+
+![Live view showing three camera snapshots](docs/screenshots/live-view.png)
+
 ## Quick start
 
 You need Docker Compose and an existing backup directory. Camera access is optional; live streams require an enabled H.264 RTSP substream.

@@ -19,5 +19,6 @@ playwright-report/
 *.mp4
 *.jpg
 *.png
+!docs/screenshots/*.png
 .env.*
 !.env.example
