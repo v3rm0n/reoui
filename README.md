@@ -5,7 +5,7 @@
 [![Docker image](https://github.com/v3rm0n/reoui/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/v3rm0n/reoui/actions/workflows/docker-publish.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-a2c9ac.svg)](LICENSE)
 
-ReoUI turns an existing Reolink backup folder into a fast, searchable video library. Browse a day at a glance, filter by camera or detected event, scrub thumbnail previews, and save the moments that matter. Open Live view for fresh camera snapshots and on-demand streams.
+ReoUI turns an existing Reolink backup folder into a fast, searchable video library. Browse a day at a glance, drag out a time range to filter recordings, filter by camera or detected event, scrub thumbnail previews, and save the moments that matter. Open Live view for fresh camera snapshots and on-demand streams.
 
 Runs in Docker. Keeps recordings on your storage. Uses [reolink_aio](https://github.com/starkillerOG/reolink_aio) to interpret camera recording metadata.
 

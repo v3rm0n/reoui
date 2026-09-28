@@ -36,3 +36,20 @@
 .snapshot-image{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 .live-placeholder .snapshot-play{position:relative;z-index:1;padding:10px 16px;border-radius:24px;background:#101719c9;color:#e8ece8;box-shadow:0 2px 12px #0004}
 .live-placeholder .snapshot-caption{position:absolute;left:12px;bottom:10px;z-index:1;padding:5px 8px;border-radius:5px;background:#101719d9;color:#c1ccc9;font-size:11px;gap:6px}
+
+.section-heading .timeline-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;margin-left:auto}
+.timeline-legend{display:flex;align-items:center}
+.timeline-range-label{font-size:10px;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap}
+.timeline-select-row{display:flex;align-items:center;gap:13px;margin:3px 0 12px}
+.timeline-select-spacer{width:89px;flex:none}
+.timeline-range-rail{position:relative;flex:1;min-width:0;height:31px;border:1px solid #405451;border-radius:5px;background:repeating-linear-gradient(90deg,#263536 0,#263536 calc(25% - 1px),#526765 calc(25% - 1px),#526765 25%);cursor:crosshair;touch-action:none;user-select:none}
+.timeline-range-rail:focus-visible{outline:2px solid var(--green)}
+.timeline-range-hint{position:absolute;inset:0;display:grid;place-items:center;color:#9bb5ad;font-size:9px;pointer-events:none}
+.timeline-range-window{position:absolute;top:-2px;bottom:-2px;display:flex;align-items:stretch;min-width:2px;border:1px solid #c5e5b0;border-radius:4px;background:#a2c9ac5c;box-shadow:0 0 0 1px #c5e5b032;z-index:1}
+.timeline-range-handle{width:min(9px,35%);flex:none;padding:0;background:#c5e5b0;cursor:ew-resize}
+.timeline-range-handle.start{border-radius:3px 0 0 3px}
+.timeline-range-handle.end{border-radius:0 3px 3px 0}
+.timeline-range-move{flex:1;min-width:0;padding:0;cursor:grab}
+.timeline-range-move:active{cursor:grabbing}
+.time-range-empty{padding:22px;border:1px solid var(--border);border-radius:7px;color:#90a6a9;font-size:11px;background:#182123}
+@media(max-width:760px){.timeline-panel>.section-heading{flex-wrap:wrap}.section-heading .timeline-actions{justify-content:flex-end;width:auto;margin-left:auto}.timeline-select-row{gap:10px}.timeline-select-spacer{width:58px}.timeline-hours{margin-left:68px}}

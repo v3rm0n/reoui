@@ -307,19 +307,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conn.execute("DELETE FROM cameras WHERE id=?", (archive["id"],))
         return {"mapped": True}
 
-    def filters(camera: str | None, day: str | None, event: str | None, q: str | None, bookmarked: bool):
+    def filters(
+        camera: str | None,
+        day: str | None,
+        event: str | None,
+        q: str | None,
+        bookmarked: bool,
+        time_start: int | None,
+        time_end: int | None,
+    ):
         clauses = ["r.bookmarked=1" if bookmarked else "r.available=1"]
         params: list = []
         if camera:
             clauses.append("r.camera_id=?")
             params.append(camera)
+        if (time_start is None) != (time_end is None):
+            raise HTTPException(422, "Both time range boundaries are required")
+        if time_start is not None and not day:
+            raise HTTPException(422, "Choose a recording day for a time range")
         if day:
             try:
-                Date.fromisoformat(day)
+                date = Date.fromisoformat(day)
             except ValueError:
                 raise HTTPException(422, "Date must be YYYY-MM-DD") from None
-            clauses.append("r.local_day=?")
-            params.append(day)
+            if time_start is None:
+                clauses.append("r.local_day=?")
+                params.append(day)
+            else:
+                tz = ZoneInfo(settings.timezone)
+                begin = datetime.combine(date, Time.min, tz).timestamp()
+                finish = datetime.combine(date + timedelta(days=1), Time.min, tz).timestamp()
+                if not begin <= time_start < time_end <= finish:
+                    raise HTTPException(422, "Time range must be within the selected day")
+                clauses.append("r.start<? AND COALESCE(r.end,r.start+COALESCE(r.duration,1))>?")
+                params.extend((time_end, time_start))
         if event == "unknown":
             clauses.append("r.triggers_known=0")
         elif event:
@@ -340,10 +361,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         event: str | None = None,
         q: str | None = Query(None, max_length=200),
         bookmarked: bool = False,
+        time_start: int | None = Query(None, ge=0),
+        time_end: int | None = Query(None, ge=0),
         cursor: str | None = None,
         limit: int = Query(36, ge=1, le=100),
     ):
-        clauses, params = filters(camera, day, event, q, bookmarked)
+        clauses, params = filters(camera, day, event, q, bookmarked, time_start, time_end)
         if cursor:
             try:
                 stamp, rid = json.loads(base64.urlsafe_b64decode(cursor))
@@ -466,10 +489,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         step = (finish - begin) / 96
         with connect(settings) as conn:
             rows = conn.execute(
-                """SELECT r.camera_id,r.start,r.end,r.id,r.triggers_known,
+                """SELECT r.camera_id,r.start,r.end,r.duration,r.id,r.triggers_known,
                 EXISTS(SELECT 1 FROM triggers t WHERE t.recording_id=r.id AND t.kind!='timer') AS event
                 FROM recordings r
-                WHERE r.available=1 AND r.start<? AND COALESCE(r.end,r.start+1)>?
+                WHERE r.available=1 AND r.start<? AND COALESCE(r.end,r.start+COALESCE(r.duration,1))>?
                 AND (? IS NULL OR r.camera_id=?)""",
                 (finish, begin, camera, camera),
             ).fetchall()
@@ -485,7 +508,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 },
             )
             lo = max(0, int((row["start"] - begin) / step))
-            hi = min(95, int(((row["end"] or row["start"] + 1) - begin - 0.001) / step))
+            hi = min(95, int(((row["end"] or row["start"] + (row["duration"] or 1)) - begin - 0.001) / step))
             for index in range(lo, hi + 1):
                 lane["bins"][index] += 1
                 lane["events"][index] += row["event"]

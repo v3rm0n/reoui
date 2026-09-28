@@ -99,6 +99,46 @@ def test_api_filters_pagination_and_metadata_unknown(settings, archive):
         assert len(timeline["lanes"][0]["bins"]) == 96
 
 
+def test_recording_time_range_uses_interval_overlap(settings, archive):
+    earlier = archive.parent / "Garden_00_20260918120000.mp4"
+    earlier.write_bytes(b"earlier")
+    overnight = archive.parent / "Garden_00_20260917235000.mp4"
+    overnight.write_bytes(b"overnight")
+    scan(settings)
+    with connect(settings) as conn:
+        conn.execute("UPDATE recordings SET end=start+1200 WHERE filename=?", (earlier.name,))
+        conn.execute("UPDATE recordings SET end=start+900 WHERE filename=?", (archive.name,))
+        conn.execute("UPDATE recordings SET end=start+1800 WHERE filename=?", (overnight.name,))
+
+    with TestClient(create_app(settings)) as client:
+        begin = int(client.get("/api/timeline?day=2026-09-18").json()["start"])
+        params = {
+            "day": "2026-09-18",
+            "time_start": begin + 12 * 3600 + 15 * 60,
+            "time_end": begin + 12 * 3600 + 25 * 60,
+        }
+        items = client.get("/api/recordings", params=params).json()["items"]
+        assert [item["filename"] for item in items] == [earlier.name]
+
+        params["time_start"] = begin + 12 * 3600 + 20 * 60
+        params["time_end"] = begin + 12 * 3600 + 30 * 60
+        assert client.get("/api/recordings", params=params).json()["items"] == []
+
+        params["time_start"] = begin + 5 * 60
+        params["time_end"] = begin + 10 * 60
+        items = client.get("/api/recordings", params=params).json()["items"]
+        assert [item["filename"] for item in items] == [overnight.name]
+
+        assert (
+            client.get("/api/recordings", params={"day": "2026-09-18", "time_start": begin}).status_code
+            == 422
+        )
+        assert (
+            client.get("/api/recordings", params={"time_start": begin, "time_end": begin + 60}).status_code
+            == 422
+        )
+
+
 def test_probe_handles_missing_audio_and_zero_frame_rate():
     result = summarize_probe(
         {

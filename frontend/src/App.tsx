@@ -8,10 +8,18 @@ import {
 } from 'lucide-react';
 import { api, bytes, clock, dayLabel, duration, media } from './api';
 import type { Camera, Page, Recording, Status, Timeline } from './api';
+import { formatTimeSlice, TimeRangeRail } from './TimeRangeRail';
+import type { TimeSlice } from './TimeRangeRail';
 const LiveView = lazy(() => import('./LiveView').then(module => ({default: module.LiveView})));
 
 const labels: Record<string,string> = {person:'Person',vehicle:'Vehicle',animal:'Animal',motion:'Motion',timer:'Continuous',doorbell:'Doorbell',package:'Package',unknown:'Unknown',face:'Face',io:'I/O',crying:'Crying',crossline:'Line crossing',intrusion:'Intrusion',linger:'Lingering',forgotten_item:'Forgotten item',taken_item:'Taken item'};
 const eventIcon = (kind: string, size = 13) => kind === 'person' ? <PersonStanding size={size}/> : kind === 'vehicle' ? <Car size={size}/> : kind === 'animal' ? <PawPrint size={size}/> : kind === 'doorbell' ? <Bell size={size}/> : <Activity size={size}/>;
+function parseTimeSlice(params: URLSearchParams): TimeSlice | null {
+  const startText = params.get('rangeStart'), endText = params.get('rangeEnd');
+  if (!params.has('day') || !startText || !endText || !/^\d+$/.test(startText) || !/^\d+$/.test(endText)) return null;
+  const start = Number(startText), end = Number(endText);
+  return start >= 0 && start < end && end <= 96 ? {start, end} : null;
+}
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -45,6 +53,7 @@ function Archive() {
   const [selected,setSelected] = useState<Recording | null>(null);
   const [selectedId,setSelectedId] = useState(initial.current.get('clip') || '');
   const [timeline,setTimeline] = useState<Timeline | null>(null);
+  const [timeRange,setTimeRange] = useState<TimeSlice | null>(()=>parseTimeSlice(initial.current));
   const [error,setError] = useState(''); const [toast,setToast] = useState('');
   const [dayPinned,setDayPinned] = useState(initial.current.has('day')||initial.current.has('clip'));
   const followingLatestDay = useRef(!initial.current.has('day')&&!initial.current.has('clip'));
@@ -67,7 +76,7 @@ function Archive() {
       if(canceled)return;
       setDates(result);
       if(followingLatestDay.current && result[0]?.day && result[0].day!==day){
-        setDay(result[0].day);setSelectedId('');setSelected(null);
+        setDay(result[0].day);setTimeRange(null);setTimeline(null);setSelectedId('');setSelected(null);
       }
     }).catch(e=>{if(!canceled)setError(e.message);});
     return()=>{canceled=true;};
@@ -77,14 +86,20 @@ function Archive() {
     const p = new URLSearchParams({limit:'36'});
     if (camera) p.set('camera',camera); if(day) p.set('day',day); if(event) p.set('event',event);
     if(query) p.set('q',query); if(view==='bookmarks') p.set('bookmarked','true');
+    if(day && timeRange && timeline){
+      const step=(timeline.end-timeline.start)/96;
+      p.set('time_start',String(Math.round(timeline.start+timeRange.start*step)));
+      p.set('time_end',String(Math.round(timeline.start+timeRange.end*step)));
+    }
     return p;
-  },[camera,day,event,query,view]);
+  },[camera,day,event,query,view,timeRange,timeline]);
 
   useEffect(()=>{
+    if(timeRange && !timeline){setLoading(true);return;}
     let canceled=false; setLoading(true);
     api<Page>(`/recordings?${params()}`).then(p=>{if (!canceled) {setPage(p);setLoading(false);}}).catch(e=>{if(!canceled){setError(e.message);setLoading(false);}});
     return()=>{canceled=true;};
-  },[params,refresh,status?.counts.recordings,status?.counts.previews,status?.counts.event_tagged]);
+  },[params,refresh,status?.counts.recordings,status?.counts.previews,status?.counts.event_tagged,timeRange,timeline]);
 
   useEffect(()=>{
     const id=selectedId||page.items[0]?.id;
@@ -103,12 +118,17 @@ function Archive() {
 
   useEffect(()=>{
     const p=new URLSearchParams();if(camera)p.set('camera',camera);if(day&&dayPinned)p.set('day',day);if(event)p.set('event',event);if(selectedId)p.set('clip',selectedId);
+    if(day&&timeRange){p.set('rangeStart',String(timeRange.start));p.set('rangeEnd',String(timeRange.end));}
     history.replaceState(null,'',`${location.pathname}${p.size?'?'+p:''}`);
-  },[camera,day,dayPinned,event,selectedId]);
+  },[camera,day,dayPinned,event,selectedId,timeRange]);
 
   function changeCamera(id:string) {setCamera(id);setSelectedId('');setSelected(null);setMobile(false);}
   function choose(recording:Recording) {followingLatestDay.current=false;setDayPinned(true);setSelected(recording);setSelectedId(recording.id);}
-  function pinDay(value:string) {followingLatestDay.current=false;setDayPinned(true);setDay(value);setSelectedId('');setSelected(null);}
+  function pinDay(value:string) {followingLatestDay.current=false;setDayPinned(true);setDay(value);setTimeRange(null);setTimeline(null);setSelectedId('');setSelected(null);}
+  function changeTimeRange(value:TimeSlice|null) {
+    if(value){followingLatestDay.current=false;setDayPinned(true);}
+    setTimeRange(value);setSelectedId('');setSelected(null);setPage({items:[],next_cursor:null});setLoading(true);
+  }
   async function bookmark(recording:Recording) {
     try {await api(`/recordings/${recording.id}`,{method:'PATCH',body:JSON.stringify({bookmarked:!recording.bookmarked})});
       setRefresh(n=>n+1);tell(recording.bookmarked?'Bookmark removed':'Recording bookmarked');
@@ -117,7 +137,7 @@ function Archive() {
   function moveDay(direction:number) {
     const index=dates.findIndex(d=>d.day===day);const next=dates[index+direction];if(next)pinDay(next.day);
   }
-  const current = selected || page.items[0] || null;
+  const current = selected && (!timeRange || page.items.some(r=>r.id===selected.id)) ? selected : page.items[0] || null;
   const currentCamera=cameras.find(c=>c.id===current?.camera_id);
   const activeCamera=cameras.find(c=>c.id===camera);
   const allTypes=Array.from(new Set(page.items.flatMap(r=>r.triggers)));
@@ -140,16 +160,42 @@ function Archive() {
         <div className="page-heading"><div className="heading-row"><h1>{view==='bookmarks'?'Bookmarks':'Recording archive'}</h1><button className="secondary scan-button" onClick={()=>api('/index',{method:'POST'}).then(()=>tell('Archive scan queued')).catch(e=>setError(e.message))}><RefreshCw size={15} className={status?.scan.status==='running'?'spin':''}/>{status?.scan.status==='running'?'Indexing…':'Scan archive'}</button></div></div>
         <div className="filters"><div className="date-controls"><button className="icon-button" aria-label="Previous recording day" disabled={!dates.length||dates.findIndex(d=>d.day===day)>=dates.length-1} onClick={()=>moveDay(1)}><ChevronLeft size={17}/></button><label className="date-picker"><CalendarDays size={16}/><span>{dayLabel(day)}</span><input type="date" aria-label="Recording date" value={day} onChange={e=>pinDay(e.target.value)}/><ChevronDown size={13}/></label><button className="icon-button" aria-label="Next recording day" disabled={dates.findIndex(d=>d.day===day)<=0} onClick={()=>moveDay(-1)}><ChevronRight size={17}/></button>{day&&<button className="text-button all-dates" onClick={()=>pinDay('')}>All dates</button>}</div><div className="filter-right"><span className="camera-filter-label"><CameraIcon size={15}/>{activeCamera?.name||'All cameras'}</span><div className="search-box"><Search size={16}/><input placeholder="Search recordings…" aria-label="Search recordings" value={search} onChange={e=>{setSearch(e.target.value);setSelectedId('');setSelected(null);}}/>{search&&<button className="icon-button" aria-label="Clear search" onClick={()=>setSearch('')}><X size={13}/></button>}</div></div></div>
         <div className="event-filters">{['','person','vehicle','animal','motion'].map(type=><button className={`event-filter ${event===type?'selected':''}`} key={type} onClick={()=>{setEvent(type);setSelectedId('');}}>{type?eventIcon(type,14):<LayoutGrid size={14}/>} {type?labels[type]:'All recordings'}</button>)}<select aria-label="More event filters" value={['','person','vehicle','animal','motion'].includes(event)?'':event} onChange={e=>{setEvent(e.target.value);setSelectedId('');}}><option value="">More events</option>{Array.from(new Set(['doorbell','package','unknown',...allTypes])).filter(k=>!['person','vehicle','animal','motion'].includes(k)).map(k=><option key={k} value={k}>{labels[k]||k}</option>)}</select></div>
-        {!current&&loading?<div className="loading-panel"><LoaderCircle className="spin"/><p>Finding your recordings…</p></div>:!current?<EmptyArchive hasRecordings={!!status?.counts.recordings} source={status?.source.available} pending={status?.scan.status==='running'} clear={()=>{setEvent('');pinDay('');setSearch('');setCamera('');}}/>:
+        {!current&&loading?<div className="loading-panel"><LoaderCircle className="spin"/><p>Finding your recordings…</p></div>:!current?(timeRange?<div className="time-range-empty">No recordings match this time range.</div>:<EmptyArchive hasRecordings={!!status?.counts.recordings} source={status?.source.available} pending={status?.scan.status==='running'} clear={()=>{setEvent('');pinDay('');setSearch('');setCamera('');}}/>):
         <><div className="viewer-layout"><Player key={`player-${current.id}`} recording={current} timezone={timezone} onBookmark={()=>bookmark(current)} onPrepared={()=>{setSelectedId(current.id);setRefresh(n=>n+1);}} onError={setError}/><Details key={`details-${current.id}`} recording={current} camera={currentCamera} timezone={timezone} onSave={()=>{setRefresh(n=>n+1);tell('Note saved');}} onError={setError}/></div>
-        <div className="timeline-panel"><div className="section-heading"><div><Clock3 size={16}/><h2>Day at a glance</h2><span className="subtle">{day?dayLabel(day):'Choose a date to see recording coverage'}</span></div><div className="timeline-legend"><span><i/>Recording</span><span><i className="event"/>Event tagged</span></div></div>
-          {timeline&&timeline.lanes.length>0?<div className="timeline-content"><div className="timeline-hours"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>{timeline.lanes.map(lane=><div className="timeline-lane" key={lane.camera}><span title={cameras.find(c=>c.id===lane.camera)?.name}>{cameras.find(c=>c.id===lane.camera)?.name}</span><div className="timeline-track">{lane.bins.map((count,i)=><button aria-label={`${cameras.find(c=>c.id===lane.camera)?.name}, ${clock(timeline.start+i*timeline.bin_seconds,timezone)}, ${count} recordings`} title={`${clock(timeline.start+i*timeline.bin_seconds,timezone)} · ${count} recordings`} key={i} className={count?'filled':''} style={count?{background:lane.events[i]?'#d8bd85':'#a2c9ac',opacity:0.45+Math.min(count,5)/10}:undefined} disabled={!count} onClick={()=>{if(lane.first[i])setSelectedId(lane.first[i]!);}}/>)}</div></div>)}</div>:<div className="timeline-empty">{day?'No timed recordings for this selection.':'Select a recording date above to explore the timeline.'}</div>}
-        </div></>}
+        </>}
+        {day&&<TimelinePanel day={day} timeline={timeline} cameras={cameras} timezone={timezone}
+          range={timeRange} onRangeChange={changeTimeRange} onChooseRecording={setSelectedId}/>}
+
         {page.items.length>0&&<section className="recording-section"><div className="section-heading"><h2>{view==='bookmarks'?'Saved recordings':'Browse recordings'}</h2></div><div className="recording-grid">{page.items.map(r=><RecordingCard key={r.id} recording={r} active={current?.id===r.id} timezone={timezone} onChoose={()=>choose(r)} onBookmark={()=>bookmark(r)}/>)}</div>{page.next_cursor&&<div className="load-more"><button className="secondary" onClick={()=>{const p=params();p.set('cursor',page.next_cursor!);api<Page>(`/recordings?${p}`).then(next=>setPage(old=>({items:[...old.items,...next.items],next_cursor:next.next_cursor}))).catch(e=>setError(e.message));}}>Load more recordings <ChevronDown size={15}/></button></div>}</section>}
       </>}
       </div>
     </main>
     {toast&&<div className="toast" role="status"><Check size={16}/>{toast}</div>}
+  </div>;
+}
+
+function TimelinePanel({day,timeline,cameras,timezone,range,onRangeChange,onChooseRecording}:{
+  day:string;timeline:Timeline|null;cameras:Camera[];timezone:string;range:TimeSlice|null;
+  onRangeChange:(range:TimeSlice|null)=>void;onChooseRecording:(id:string)=>void;
+}) {
+  const cameraNames=new Map(cameras.map(camera=>[camera.id,camera.name]));
+  return <div className="timeline-panel">
+    <div className="section-heading"><div><Clock3 size={16}/><h2>Day at a glance</h2><span className="subtle">{dayLabel(day)}</span></div>
+      <div className="timeline-actions">{range&&timeline&&<><span className="timeline-range-label">{formatTimeSlice(range,timeline,timezone)}</span><button className="text-button" onClick={()=>onRangeChange(null)}>Clear time range</button></>}
+        <div className="timeline-legend"><span><i/>Recording</span><span><i className="event"/>Event tagged</span></div>
+      </div>
+    </div>
+    {timeline&&timeline.lanes.length>0?<div className="timeline-content">
+      <div className="timeline-hours"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+      <div className="timeline-select-row"><span className="timeline-select-spacer"/><TimeRangeRail timeline={timeline} timezone={timezone} value={range} onChange={onRangeChange}/></div>
+      {timeline.lanes.map(lane=><div className="timeline-lane" key={lane.camera}><span title={cameraNames.get(lane.camera)}>{cameraNames.get(lane.camera)}</span><div className="timeline-track">{lane.bins.map((count,i)=><button
+        aria-label={`${cameraNames.get(lane.camera)}, ${clock(timeline.start+i*timeline.bin_seconds,timezone)}, ${count} recordings`}
+        title={`${clock(timeline.start+i*timeline.bin_seconds,timezone)} · ${count} recordings`}
+        key={i} className={count?'filled':''}
+        style={count?{background:lane.events[i]?'#d8bd85':'#a2c9ac',opacity:range&&(i<range.start||i>=range.end)?0.2:0.45+Math.min(count,5)/10}:undefined}
+        disabled={!count||!!(range&&(i<range.start||i>=range.end))}
+        onClick={()=>{if(lane.first[i])onChooseRecording(lane.first[i]!);}}/>)}</div></div>)}
+    </div>:<div className="timeline-empty">No timed recordings for this date.</div>}
   </div>;
 }
 

@@ -95,3 +95,69 @@ test('new recording day appears without refreshing the page',async({page},testIn
   await expect(page.getByLabel('Recording date')).toHaveValue('2026-09-19',{timeout:10000});
   await expect(page.locator('.recording-card')).toHaveCount(1);
 });
+
+test('timeline range filters recordings and can be moved, resized, and cleared',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='desktop');
+  await page.goto('/');
+  await expect(page.locator('.recording-card')).toHaveCount(6);
+  const rail=page.locator('.timeline-range-rail');
+  await expect(rail).toBeVisible();
+  let box=await rail.boundingBox();
+  if(!box)throw new Error('Timeline selection rail is missing');
+  const x=(bin:number)=>box!.x+box!.width*bin/96;
+  const y=box.y+box.height/2;
+
+  await page.mouse.move(x(42),y);
+  await page.mouse.down();
+  await page.mouse.move(x(49),y,{steps:8});
+  await page.mouse.up();
+  await expect(page.locator('.recording-card')).toHaveCount(4);
+  await expect(page).toHaveURL(/rangeStart=42&rangeEnd=49/);
+  await page.screenshot({path:'test-results/timeline-range-desktop.png',fullPage:true});
+  await page.reload();
+  await expect(page.locator('.recording-card')).toHaveCount(4);
+
+  box=await rail.boundingBox();
+  if(!box)throw new Error('Timeline selection rail disappeared');
+  let handle=await page.locator('.timeline-range-move').boundingBox();
+  if(!handle)throw new Error('Move handle is missing');
+  await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x+handle.width/2+box.width*4/96,handle.y+handle.height/2,{steps:8});
+  await page.mouse.up();
+  await expect(page.locator('.recording-card')).toHaveCount(6);
+
+  box=await rail.boundingBox();
+  if(!box)throw new Error('Timeline selection rail disappeared');
+  handle=await page.locator('.timeline-range-handle.start').boundingBox();
+  if(!handle)throw new Error('Start resize handle is missing');
+  await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);
+  await page.mouse.down();
+  await page.mouse.move(box.x+box.width*49/96,handle.y+handle.height/2,{steps:8});
+  await page.mouse.up();
+  await expect(page.locator('.recording-card')).toHaveCount(2);
+
+  box=await rail.boundingBox();
+  if(!box)throw new Error('Timeline selection rail disappeared');
+  handle=await page.locator('.timeline-range-move').boundingBox();
+  if(!handle)throw new Error('Move handle is missing');
+  await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x+handle.width/2+box.width*7/96,handle.y+handle.height/2,{steps:8});
+  await page.mouse.up();
+  await expect(page.locator('.recording-card')).toHaveCount(0);
+  await expect(page.getByText('No recordings match this time range.')).toBeVisible();
+  await expect(rail).toBeVisible();
+  await page.getByRole('button',{name:'Clear time range'}).click();
+  await expect(page.locator('.recording-card')).toHaveCount(6);
+  await expect(page).not.toHaveURL(/rangeStart=/);
+
+  await rail.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/rangeStart=48&rangeEnd=52/);
+  await page.locator('.timeline-range-move').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page).toHaveURL(/rangeStart=49&rangeEnd=53/);
+  await page.keyboard.press('Escape');
+  await expect(page).not.toHaveURL(/rangeStart=/);
+});
