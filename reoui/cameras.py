@@ -18,7 +18,7 @@ from reolink_aio.typings import Reolink_timezone
 
 from .config import Settings
 from .db import connect, set_state
-from .indexer import COLORS, identifier
+from .indexer import identifier
 
 ALLOWED_COMMANDS = frozenset(
     {
@@ -208,17 +208,16 @@ def load_camera_config(settings: Settings) -> list[dict]:
 def register_cameras(settings: Settings) -> list[dict]:
     configs = load_camera_config(settings)
     with connect(settings) as conn:
-        for index, config in enumerate(configs):
+        for config in configs:
             cid = identifier("device:" + config["host"] + ":0")
             conn.execute(
-                """INSERT INTO cameras(id,name,device_host,folder,color,status)
-                VALUES(?,?,?,?,?,'pending') ON CONFLICT(id) DO UPDATE SET device_host=excluded.device_host""",
+                """INSERT INTO cameras(id,name,device_host,folder,status)
+                VALUES(?,?,?,?,'pending') ON CONFLICT(id) DO UPDATE SET device_host=excluded.device_host""",
                 (
                     cid,
                     config.get("name", "Camera " + config["host"].rsplit(".", 1)[-1]),
                     config["host"],
                     config.get("folder"),
-                    COLORS[index % len(COLORS)],
                 ),
             )
     return configs

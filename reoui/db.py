@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);
 INSERT INTO schema_version SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM schema_version);
 CREATE TABLE IF NOT EXISTS cameras(
  id TEXT PRIMARY KEY, name TEXT NOT NULL, folder TEXT, device_host TEXT,
- channel INTEGER NOT NULL DEFAULT 0, color TEXT NOT NULL DEFAULT '#8fbd9d',
+ channel INTEGER NOT NULL DEFAULT 0,
  metadata TEXT NOT NULL DEFAULT '{}', last_seen REAL, status TEXT NOT NULL DEFAULT 'archive'
 );
 CREATE TABLE IF NOT EXISTS recordings(

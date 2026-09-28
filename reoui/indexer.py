@@ -15,7 +15,6 @@ from .config import Settings
 from .db import connect, set_state
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".h264", ".h265", ".264", ".265"}
-COLORS = ["#a2c9ac", "#9db4d3", "#d8b58b", "#b7a2cc", "#8bbfc0"]
 
 
 def identifier(value: str) -> str:
@@ -206,8 +205,8 @@ def save_batch(settings: Settings, batch: list, scan_id: str) -> tuple[int, int]
             camera = conn.execute("SELECT id FROM cameras WHERE folder=?", (folder,)).fetchone()
             camera_id = camera[0] if camera else identifier("folder:" + folder)
             conn.execute(
-                "INSERT OR IGNORE INTO cameras(id,name,folder,color) VALUES(?,?,?,?)",
-                (camera_id, folder, folder, COLORS[int(camera_id[:2], 16) % len(COLORS)]),
+                "INSERT OR IGNORE INTO cameras(id,name,folder) VALUES(?,?,?)",
+                (camera_id, folder, folder),
             )
             rid = identifier(relative)
             previous = conn.execute("SELECT size,mtime FROM recordings WHERE id=?", (rid,)).fetchone()

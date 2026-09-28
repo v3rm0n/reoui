@@ -284,6 +284,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             result = []
             for row in rows:
                 item = dict(row)
+                item.pop("color", None)  # Legacy catalogs may still have this column.
                 item["metadata"] = json.loads(item["metadata"])
                 result.append(item)
             return result
@@ -354,7 +355,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             params += [stamp, rid]
         with connect(settings) as conn:
             rows = conn.execute(
-                f"""SELECT r.*,c.name AS camera_name,c.color AS camera_color
+                f"""SELECT r.*,c.name AS camera_name
                 FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE {" AND ".join(clauses)}
                 ORDER BY COALESCE(r.start,r.mtime) DESC,r.id DESC LIMIT ?""",
                 (*params, limit + 1),
@@ -372,7 +373,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def recording(rid: str):
         with connect(settings) as conn:
             row = conn.execute(
-                """SELECT r.*,c.name AS camera_name,c.color AS camera_color
+                """SELECT r.*,c.name AS camera_name
                 FROM recordings r JOIN cameras c ON c.id=r.camera_id WHERE r.id=?""",
                 (rid,),
             ).fetchone()
@@ -465,9 +466,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         step = (finish - begin) / 96
         with connect(settings) as conn:
             rows = conn.execute(
-                """SELECT r.camera_id,r.start,r.end,r.id,r.triggers_known,c.color,
+                """SELECT r.camera_id,r.start,r.end,r.id,r.triggers_known,
                 EXISTS(SELECT 1 FROM triggers t WHERE t.recording_id=r.id AND t.kind!='timer') AS event
-                FROM recordings r JOIN cameras c ON c.id=r.camera_id
+                FROM recordings r
                 WHERE r.available=1 AND r.start<? AND COALESCE(r.end,r.start+1)>?
                 AND (? IS NULL OR r.camera_id=?)""",
                 (finish, begin, camera, camera),
@@ -478,7 +479,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 row["camera_id"],
                 {
                     "camera": row["camera_id"],
-                    "color": row["color"],
                     "bins": [0] * 96,
                     "events": [0] * 96,
                     "first": [None] * 96,

@@ -1,5 +1,5 @@
 export type Recording = {
-  id: string; filename: string; path: string; camera_id: string; camera_name: string; camera_color: string;
+  id: string; filename: string; path: string; camera_id: string; camera_name: string;
   size: number; mtime: number; start: number | null; end: number | null; duration: number | null;
   width: number | null; height: number | null; fps: number | null; video_codec: string | null;
   audio_codec: string | null; time_source: string; time_warning: string | null; stream: string | null;
@@ -12,7 +12,7 @@ export type Recording = {
   jobs?: {kind: string; status: string; error: string | null}[];
 };
 export type Camera = {
-  id: string; name: string; device_host: string | null; folder: string | null; color: string;
+  id: string; name: string; device_host: string | null; folder: string | null;
   status: string; recordings: number; bytes: number; last_seen: number | null;
   metadata: { captured_at?: number; coverage?: Record<string,string>;
     host?: {GetDevInfo?: {DevInfo?: {model?: string; firmVer?: string; hardVer?: string}}};
@@ -29,7 +29,7 @@ export type Status = {
   collector: {updated_at?: number; error?: string};
 };
 export type Page = {items: Recording[]; next_cursor: string | null};
-export type Timeline = {start: number; end: number; bin_seconds: number; lanes: {camera: string; color: string; bins: number[]; events: number[]; first: (string | null)[]}[]};
+export type Timeline = {start: number; end: number; bin_seconds: number; lanes: {camera: string; bins: number[]; events: number[]; first: (string | null)[]}[]};
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, { ...options, headers: {'Content-Type': 'application/json', ...options?.headers} });
