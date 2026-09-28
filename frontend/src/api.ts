@@ -3,7 +3,7 @@ export type Recording = {
   size: number; mtime: number; start: number | null; end: number | null; duration: number | null;
   width: number | null; height: number | null; fps: number | null; video_codec: string | null;
   audio_codec: string | null; time_source: string; time_warning: string | null; stream: string | null;
-  triggers: string[]; triggers_known: boolean; poster: boolean; proxy: boolean; status: string;
+  triggers: string[]; triggers_known: boolean; poster: boolean; proxy: boolean; status: string; available: boolean;
   note: string; bookmarked: boolean; error: string | null;
   sprite: { width: number; height: number; columns: number; rows: number; timestamps: number[] } | null;
   probe?: unknown; trigger_sources?: {kind: string; source: string}[];

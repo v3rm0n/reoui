@@ -142,7 +142,8 @@ async def run(settings: Settings, once: bool = False):
             if "media" not in processes:
                 with connect(settings) as conn:
                     row = conn.execute(
-                        "SELECT id FROM recordings WHERE status='pending' ORDER BY COALESCE(start,mtime) DESC LIMIT 1"
+                        "SELECT id FROM recordings WHERE status='pending' AND available=1 "
+                        "ORDER BY COALESCE(start,mtime) DESC LIMIT 1"
                     ).fetchone()
                 if row:
                     enqueue(settings, "prepare", row[0])

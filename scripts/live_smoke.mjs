@@ -10,7 +10,7 @@ try {
  const cards=page.locator('.live-card');
  await cards.first().waitFor();
  const count=await cards.count();if(count===0)throw new Error('No camera players');
- for(let i=0;i<count;i++)await cards.nth(i).getByRole('button',{name:'Connect',exact:true}).click();
+ for(let i=0;i<count;i++)await cards.nth(i).getByRole('button',{name:/^Watch .+ live$/}).click();
  await page.waitForFunction(()=>{const videos=[...document.querySelectorAll('.live-card video')];return videos.length===3&&videos.every(v=>v.currentTime>1&&v.videoWidth>0);},null,{timeout:45000});
  const playback=await page.locator('.live-card video').evaluateAll(videos=>videos.map(v=>({label:v.getAttribute('aria-label'),time:v.currentTime,width:v.videoWidth,height:v.videoHeight,error:v.error?.message||null})));
  await page.screenshot({path:'.local/screenshots/live-desktop.png'});

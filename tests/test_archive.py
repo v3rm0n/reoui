@@ -33,6 +33,46 @@ def test_missing_mount_does_not_delete_catalog(settings, archive):
     assert scan(settings)["status"] == "error"
     with connect(settings) as conn:
         assert conn.execute("SELECT COUNT(*) FROM recordings").fetchone()[0] == 1
+        assert conn.execute("SELECT available FROM recordings").fetchone()[0] == 1
+
+
+def test_full_scan_hides_missing_media_but_preserves_annotations(settings, archive):
+    newer = archive.parent / "Garden_00_20260919123000.mp4"
+    newer.write_bytes(b"newer recording")
+    assert scan(settings)["added"] == 2
+    with connect(settings) as conn:
+        old_id = conn.execute("SELECT id FROM recordings WHERE filename=?", (archive.name,)).fetchone()[0]
+        conn.execute("UPDATE recordings SET bookmarked=1,note='Keep this' WHERE id=?", (old_id,))
+
+    archive.unlink()
+    assert scan(settings, limit=1)["missing"] == 0
+    with connect(settings) as conn:
+        assert conn.execute("SELECT available FROM recordings WHERE id=?", (old_id,)).fetchone()[0] == 1
+
+    assert scan(settings)["missing"] == 1
+    with connect(settings) as conn:
+        row = conn.execute(
+            "SELECT available,bookmarked,note FROM recordings WHERE id=?", (old_id,)
+        ).fetchone()
+        assert tuple(row) == (0, 1, "Keep this")
+    with TestClient(create_app(settings)) as client:
+        assert [r["filename"] for r in client.get("/api/recordings").json()["items"]] == [newer.name]
+        assert client.get("/api/dates").json()[0]["day"] == "2026-09-19"
+        bookmarked = client.get("/api/recordings?bookmarked=true").json()["items"]
+        assert len(bookmarked) == 1 and bookmarked[0]["id"] == old_id
+        assert bookmarked[0]["available"] is False
+        assert client.get("/api/recordings/" + old_id).status_code == 200
+        assert client.get("/api/media/" + old_id + "/original").status_code == 404
+        assert client.post("/api/recordings/" + old_id + "/prepare").status_code == 409
+        assert client.get("/api/status").json()["counts"]["recordings"] == 1
+
+    archive.write_bytes(b"restored recording")
+    assert scan(settings)["changed"] == 1
+    with connect(settings) as conn:
+        row = conn.execute(
+            "SELECT available,bookmarked,note FROM recordings WHERE id=?", (old_id,)
+        ).fetchone()
+        assert tuple(row) == (1, 1, "Keep this")
 
 
 def test_unknown_and_dst_timestamps_are_explicit():

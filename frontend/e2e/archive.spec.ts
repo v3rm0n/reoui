@@ -15,7 +15,7 @@ test('archive, filters, browser playback, notes, bookmarks and navigation', asyn
   await page.getByRole('button',{name:'Play selected recording',exact:true}).click();
   await expect.poll(()=>page.locator('video').evaluate((video:HTMLVideoElement)=>video.currentTime),{timeout:15000}).toBeGreaterThan(0.1);
   await page.locator('video').evaluate((video:HTMLVideoElement)=>video.pause());
-  await page.getByLabel('YOUR NOTE').fill(`Browser test bookmark ${testInfo.project.name}`);
+  await page.getByLabel('Note').fill(`Browser test bookmark ${testInfo.project.name}`);
   await page.getByRole('button',{name:'Save note',exact:true}).click();
   await expect(page.getByRole('status')).toHaveText('Note saved');
   await page.getByRole('button',{name:'Bookmark selected recording',exact:true}).click();
@@ -23,7 +23,7 @@ test('archive, filters, browser playback, notes, bookmarks and navigation', asyn
 
   if(testInfo.project.name==='mobile')await page.getByRole('button',{name:'Open navigation'}).click();
   await page.getByRole('button',{name:'Bookmarks',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Bookmarked moments',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Bookmarks',exact:true})).toBeVisible();
   await expect(page.locator('.recording-card')).toHaveCount(1);
   await page.getByRole('button',{name:'Remove selected bookmark',exact:true}).click();
   await expect(page.locator('.recording-card')).toHaveCount(0);

@@ -4,6 +4,8 @@ x-common: &common
   build: .
   user: "${REOUI_UID:-1000}:${REOUI_GID:-1000}"
   restart: unless-stopped
+  networks:
+    - default
   init: true
   read_only: true
   cap_drop: [ALL]
@@ -48,6 +50,7 @@ services:
         target: /cache
         read_only: true
         bind: {create_host_path: false}
+    hostname: reoui
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/api/health',timeout=3)"]
       interval: 30s
@@ -55,6 +58,11 @@ services:
       retries: 3
       start_period: 15s
     mem_limit: 512m
+    labels:
+      - "docktail.service.enable=true"
+      - "docktail.service.name=reoui"
+      - "docktail.service.port=8090"
+      - "docktail.service.service-port=443"
   worker:
     <<: *common
     command: [worker]

@@ -240,11 +240,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 conn.execute("""SELECT COUNT(*) AS recordings,COALESCE(SUM(size),0) AS bytes,
                 COALESCE(SUM(duration),0) AS seconds,MIN(local_day) AS first_day,MAX(local_day) AS last_day,
                 COALESCE(SUM(poster),0) AS previews,COALESCE(SUM(status='error'),0) AS errors,
-                COALESCE(SUM(status IN ('pending','processing')),0) AS pending FROM recordings""").fetchone()
+                COALESCE(SUM(status IN ('pending','processing')),0) AS pending
+                FROM recordings WHERE available=1""").fetchone()
             )
             counts["cameras"] = conn.execute("SELECT COUNT(*) FROM cameras").fetchone()[0]
             counts["event_tagged"] = conn.execute(
-                "SELECT COUNT(*) FROM recordings WHERE triggers_known=1"
+                "SELECT COUNT(*) FROM recordings WHERE available=1 AND triggers_known=1"
             ).fetchone()[0]
             event_recovery = dict(
                 conn.execute("""SELECT COUNT(*) AS searched_days,
@@ -254,7 +255,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             event_recovery["total_days"] = conn.execute("""SELECT COUNT(*) FROM (
                 SELECT DISTINCT r.camera_id,r.local_day FROM recordings r JOIN cameras c ON c.id=r.camera_id
-                WHERE c.device_host IS NOT NULL AND r.local_day IS NOT NULL)""").fetchone()[0]
+                WHERE c.device_host IS NOT NULL AND r.available=1 AND r.local_day IS NOT NULL)""").fetchone()[0]
             cache = conn.execute("SELECT COALESCE(SUM(bytes),0) FROM cache_files").fetchone()[0]
             worker = get_state(conn, "worker", {})
             worker["online"] = bool(
@@ -277,7 +278,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def cameras():
         with connect(settings) as conn:
             rows = conn.execute("""SELECT c.*,COUNT(r.id) AS recordings,MAX(r.start) AS latest,
-                COALESCE(SUM(r.size),0) AS bytes FROM cameras c LEFT JOIN recordings r ON c.id=r.camera_id
+                COALESCE(SUM(r.size),0) AS bytes FROM cameras c
+                LEFT JOIN recordings r ON c.id=r.camera_id AND r.available=1
                 GROUP BY c.id ORDER BY c.name""").fetchall()
             result = []
             for row in rows:
@@ -305,7 +307,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"mapped": True}
 
     def filters(camera: str | None, day: str | None, event: str | None, q: str | None, bookmarked: bool):
-        clauses = ["1=1"]
+        clauses = ["r.bookmarked=1" if bookmarked else "r.available=1"]
         params: list = []
         if camera:
             clauses.append("r.camera_id=?")
@@ -328,8 +330,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             params += [f"%{escaped}%"] * 3
-        if bookmarked:
-            clauses.append("r.bookmarked=1")
         return clauses, params
 
     @app.get("/api/recordings")
@@ -432,20 +432,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/recordings/{rid}/prepare")
     def queue_prepare(rid: str, compatible: bool = True):
         with connect(settings) as conn:
-            if not conn.execute("SELECT 1 FROM recordings WHERE id=?", (rid,)).fetchone():
+            row = conn.execute("SELECT available FROM recordings WHERE id=?", (rid,)).fetchone()
+            if not row:
                 raise HTTPException(404, "Recording not found")
+            if not row["available"]:
+                raise HTTPException(409, "Recording source is unavailable")
         return {"job": enqueue(settings, "proxy" if compatible else "prepare", rid, priority=20)}
 
     @app.get("/api/dates")
-    def dates(camera: str | None = None):
+    def dates(camera: str | None = None, bookmarked: bool = False):
         with connect(settings) as conn:
             return [
                 dict(row)
                 for row in conn.execute(
                     """SELECT local_day AS day,COUNT(*) AS count
-                FROM recordings WHERE local_day IS NOT NULL AND (? IS NULL OR camera_id=?)
+                FROM recordings WHERE local_day IS NOT NULL
+                AND (available=1 OR (? AND bookmarked=1)) AND (? IS NULL OR camera_id=?)
                 GROUP BY local_day ORDER BY local_day DESC""",
-                    (camera, camera),
+                    (bookmarked, camera, camera),
                 )
             ]
 
@@ -464,7 +468,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 """SELECT r.camera_id,r.start,r.end,r.id,r.triggers_known,c.color,
                 EXISTS(SELECT 1 FROM triggers t WHERE t.recording_id=r.id AND t.kind!='timer') AS event
                 FROM recordings r JOIN cameras c ON c.id=r.camera_id
-                WHERE r.start<? AND COALESCE(r.end,r.start+1)>? AND (? IS NULL OR r.camera_id=?)""",
+                WHERE r.available=1 AND r.start<? AND COALESCE(r.end,r.start+1)>?
+                AND (? IS NULL OR r.camera_id=?)""",
                 (finish, begin, camera, camera),
             ).fetchall()
         lanes = {}

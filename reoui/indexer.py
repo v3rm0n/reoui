@@ -162,7 +162,15 @@ def scan(settings: Settings, limit: int = 0) -> dict:
             a, c = save_batch(settings, batch, scan_id)
             added += a
             changed += c
-        # Retain records if files disappear. Source availability never deletes metadata.
+        # Only a successful full walk can prove a previously indexed path is missing.
+        # Keep its metadata, annotations, and bookmarks for later recovery.
+        missing = 0
+        if not limit:
+            with connect(settings) as conn:
+                missing = conn.execute(
+                    "UPDATE recordings SET available=0 WHERE available=1 AND COALESCE(last_scan,'')!=?",
+                    (scan_id,),
+                ).rowcount
         result = {
             "status": "complete",
             "started_at": started,
@@ -170,6 +178,7 @@ def scan(settings: Settings, limit: int = 0) -> dict:
             "seen": count,
             "added": added,
             "changed": changed,
+            "missing": missing,
             "unstable": unstable,
             "limited": bool(limit and count >= limit),
         }
