@@ -62,6 +62,25 @@ test('camera and date selection, empty state, and scrub previews',async({page},t
   await page.screenshot({path:`test-results/archive-${testInfo.project.name}.png`,fullPage:true});
 });
 
+test('event and search filters also update timeline coverage',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='desktop');
+  await page.goto('/');
+  await expect(page.locator('.recording-card')).toHaveCount(6);
+  await page.getByRole('button',{name:'Motion',exact:true}).click();
+  await expect(page.locator('.recording-card')).toHaveCount(0);
+  await expect(page.locator('.timeline-lane')).toHaveCount(0);
+  await expect(page.getByText('No timed recordings match these filters.')).toBeVisible();
+  await expect(page.locator('.timeline-range-rail')).toBeVisible();
+
+  await page.getByRole('button',{name:'Person',exact:true}).click();
+  await expect(page.locator('.recording-card')).toHaveCount(3);
+  await expect.poll(()=>page.locator('.timeline-lane').evaluateAll(lanes=>lanes.reduce((total,lane)=>total+lane.querySelectorAll('button.filled').length,0))).toBeGreaterThan(0);
+
+  await page.getByRole('textbox',{name:'Search recordings'}).fill('no-such-clip');
+  await expect(page.locator('.recording-card')).toHaveCount(0);
+  await expect(page.locator('.timeline-lane')).toHaveCount(0);
+});
+
 test('new recording day appears without refreshing the page',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='desktop');
   let added=false;

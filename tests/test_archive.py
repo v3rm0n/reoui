@@ -99,6 +99,35 @@ def test_api_filters_pagination_and_metadata_unknown(settings, archive):
         assert len(timeline["lanes"][0]["bins"]) == 96
 
 
+def test_timeline_respects_recording_filters(settings, archive):
+    other = archive.parent / "Garden_00_20260918120000.mp4"
+    other.write_bytes(b"other")
+    scan(settings)
+    with connect(settings) as conn:
+        chosen = conn.execute("SELECT id FROM recordings WHERE filename=?", (other.name,)).fetchone()[0]
+        conn.execute("UPDATE recordings SET bookmarked=1,note='Find this clip' WHERE id=?", (chosen,))
+        conn.execute(
+            "INSERT INTO triggers(recording_id,kind,source) VALUES(?,?,?)",
+            (chosen, "motion", "test"),
+        )
+    with TestClient(create_app(settings)) as client:
+        for extra, expected in [
+            ({}, 2),
+            ({"event": "motion"}, 1),
+            ({"event": "person"}, 0),
+            ({"q": "Find this clip"}, 1),
+            ({"bookmarked": "true"}, 1),
+            ({"event": "motion", "q": "missing"}, 0),
+        ]:
+            params = {"day": "2026-09-18", **extra}
+            timeline = client.get("/api/timeline", params=params).json()
+            recordings = client.get("/api/recordings", params=params).json()["items"]
+            assert sum(sum(lane["bins"]) for lane in timeline["lanes"]) == expected
+            assert len(recordings) == expected
+            if expected == 1:
+                assert timeline["lanes"][0]["first"][48] == chosen
+
+
 def test_recording_time_range_uses_interval_overlap(settings, archive):
     earlier = archive.parent / "Garden_00_20260918120000.mp4"
     earlier.write_bytes(b"earlier")

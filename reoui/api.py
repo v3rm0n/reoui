@@ -478,7 +478,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ]
 
     @app.get("/api/timeline")
-    def timeline(day: str, camera: str | None = None):
+    def timeline(
+        day: str,
+        camera: str | None = None,
+        event: str | None = None,
+        q: str | None = Query(None, max_length=200),
+        bookmarked: bool = False,
+    ):
         try:
             date = Date.fromisoformat(day)
         except ValueError:
@@ -487,14 +493,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         begin = datetime.combine(date, Time.min, tz).timestamp()
         finish = datetime.combine(date + timedelta(days=1), Time.min, tz).timestamp()
         step = (finish - begin) / 96
+        clauses, params = filters(camera, None, event, q, bookmarked, None, None)
+        clauses.append("r.start<? AND COALESCE(r.end,r.start+COALESCE(r.duration,1))>?")
+        params.extend((finish, begin))
         with connect(settings) as conn:
             rows = conn.execute(
-                """SELECT r.camera_id,r.start,r.end,r.duration,r.id,r.triggers_known,
+                f"""SELECT r.camera_id,r.start,r.end,r.duration,r.id,r.triggers_known,
                 EXISTS(SELECT 1 FROM triggers t WHERE t.recording_id=r.id AND t.kind!='timer') AS event
-                FROM recordings r
-                WHERE r.available=1 AND r.start<? AND COALESCE(r.end,r.start+COALESCE(r.duration,1))>?
-                AND (? IS NULL OR r.camera_id=?)""",
-                (finish, begin, camera, camera),
+                FROM recordings r JOIN cameras c ON c.id=r.camera_id
+                WHERE {" AND ".join(clauses)}""",
+                params,
             ).fetchall()
         lanes = {}
         for row in rows:

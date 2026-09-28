@@ -112,9 +112,10 @@ function Archive() {
   useEffect(()=>{
     if(!day) {setTimeline(null);return;}
     let canceled=false; const p=new URLSearchParams({day}); if(camera)p.set('camera',camera);
+    if(event)p.set('event',event);if(query)p.set('q',query);if(view==='bookmarks')p.set('bookmarked','true');
     api<Timeline>(`/timeline?${p}`).then(t=>{if(!canceled)setTimeline(t);}).catch(e=>setError(e.message));
     return()=>{canceled=true;};
-  },[day,camera,status?.counts.recordings,status?.counts.previews]);
+  },[day,camera,event,query,view,refresh,status?.counts.recordings,status?.counts.previews,status?.counts.event_tagged]);
 
   useEffect(()=>{
     const p=new URLSearchParams();if(camera)p.set('camera',camera);if(day&&dayPinned)p.set('day',day);if(event)p.set('event',event);if(selectedId)p.set('clip',selectedId);
@@ -185,7 +186,7 @@ function TimelinePanel({day,timeline,cameras,timezone,range,onRangeChange,onChoo
         <div className="timeline-legend"><span><i/>Recording</span><span><i className="event"/>Event tagged</span></div>
       </div>
     </div>
-    {timeline&&timeline.lanes.length>0?<div className="timeline-content">
+    {timeline?<div className="timeline-content">
       <div className="timeline-hours"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
       <div className="timeline-select-row"><span className="timeline-select-spacer"/><TimeRangeRail timeline={timeline} timezone={timezone} value={range} onChange={onRangeChange}/></div>
       {timeline.lanes.map(lane=><div className="timeline-lane" key={lane.camera}><span title={cameraNames.get(lane.camera)}>{cameraNames.get(lane.camera)}</span><div className="timeline-track">{lane.bins.map((count,i)=><button
@@ -195,6 +196,7 @@ function TimelinePanel({day,timeline,cameras,timezone,range,onRangeChange,onChoo
         style={count?{background:lane.events[i]?'#d8bd85':'#a2c9ac',opacity:range&&(i<range.start||i>=range.end)?0.2:0.45+Math.min(count,5)/10}:undefined}
         disabled={!count||!!(range&&(i<range.start||i>=range.end))}
         onClick={()=>{if(lane.first[i])onChooseRecording(lane.first[i]!);}}/>)}</div></div>)}
+      {!timeline.lanes.length&&<div className="timeline-empty">No timed recordings match these filters.</div>}
     </div>:<div className="timeline-empty">No timed recordings for this date.</div>}
   </div>;
 }
