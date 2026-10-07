@@ -15,7 +15,7 @@ from datetime import time as Time
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,7 @@ from .config import Settings, archive_file
 from .db import connect, enqueue, get_state, initialize, serialize_recording
 from .live import LEASE_SECONDS, live_file, snapshot_file
 from .media import cache_path
+from .sharing import share_html
 
 
 class Annotation(BaseModel):
@@ -691,6 +692,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     if settings.web.is_dir():
         app.mount("/assets", StaticFiles(directory=settings.web / "assets"), name="assets")
+
+        @app.api_route("/share/{token}", methods=["GET", "HEAD"])
+        def share_page(token: str, request: Request):
+            template = (settings.web / "index.html").read_text()
+            try:
+                row = shared_recording(token)
+            except HTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                # Keep the SPA's friendly unavailable page, without recording metadata.
+                return HTMLResponse(template, status_code=404)
+            origin = settings.public_origin or str(request.base_url).rstrip("/")
+            return HTMLResponse(share_html(template, row, token, origin, settings))
 
         @app.get("/{path:path}")
         def frontend(path: str):

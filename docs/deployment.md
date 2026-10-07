@@ -38,6 +38,8 @@ Point the hostname at your HTTPS reverse proxy and proxy the entire site to the 
 
 In a recording's playback toolbar, choose **Share recording**, select an expiry (1, 7, or 30 days), and create a link. Copy the URL while it is displayed: the database stores only a hash of its random 256-bit secret, so the URL cannot be retrieved later. **Active links → Revoke** immediately prevents new requests through that link. Links persist across app restarts, expire on the server, and stop working when a recording is unavailable. Only that recording's original, prepared playback copy, poster, and basic playback details are exposed. Notes, archive paths, other recordings, camera connections, and live streams remain private. Prepare a compatible playback copy before sharing recordings your recipient's browser cannot play.
 
+Share pages include server-rendered Open Graph and Twitter card metadata: the camera name, recording time, duration, and recording thumbnail when prepared. Preview images use the same expiring share token as playback.
+
 Share URLs act as credentials: anyone receiving one can watch and download the video until expiry or revocation. Avoid logging full `/share/` and `/api/shared/` URLs in the proxy or analytics. Revocation cannot remove copies already downloaded. The app disables caching on authenticated and shared API responses, sends a no-referrer policy, and tells crawlers not to index share pages. Without `REOUI_PUBLIC_ORIGIN`, link creation uses the incoming request origin; set it explicitly for internet deployments.
 
 ### Tailscale

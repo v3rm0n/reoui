@@ -11,6 +11,7 @@ import type { Camera, Page, Recording, Status, Timeline } from './api';
 import { formatTimeSlice, TimeRangeRail } from './TimeRangeRail';
 import type { TimeSlice } from './TimeRangeRail';
 import { ShareControls, SharedPlayer } from './Sharing';
+import { PlaybackStage } from './PlaybackStage';
 const LiveView = lazy(() => import('./LiveView').then(module => ({default: module.LiveView})));
 
 const labels: Record<string,string> = {person:'Person',vehicle:'Vehicle',animal:'Animal',motion:'Motion',timer:'Continuous',doorbell:'Doorbell',package:'Package',unknown:'Unknown',face:'Face',io:'I/O',crying:'Crying',crossline:'Line crossing',intrusion:'Intrusion',linger:'Lingering',forgotten_item:'Forgotten item',taken_item:'Taken item'};
@@ -236,12 +237,15 @@ function Player({recording:r,timezone,onBookmark,onPrepared,onError}:{recording:
   useEffect(()=>{if(r.proxy){setQueued(false);setFailed(false);setOriginal(false);}},[r.proxy]);
   const prepare=async()=>{try{await api(`/recordings/${r.id}/prepare`,{method:'POST'});setQueued(true);onPrepared();}catch(e){onError((e as Error).message);}};
   function fullscreen(){video.current?.requestFullscreen().catch(()=>{});}
-  return <section className="player-panel"><div className="player-stage">{!r.available?<div className="player-placeholder"><Video size={44}/><span>The original recording is no longer in the archive</span></div>:playing?<video ref={video} src={media(r,r.proxy&&!original?'proxy':'original')} poster={r.poster?media(r,'poster'):undefined} controls autoPlay playsInline preload="metadata" onError={()=>setFailed(true)}/>:<>
-    {r.poster?<img className="player-poster" src={media(r,'poster')} alt={`${r.camera_name} selected recording`}/>:<div className="player-placeholder"><Video size={44}/><span>{r.status==='error'?'Preview unavailable':'Preview is being prepared'}</span></div>}
-    <div className="player-shade"/><button className="large-play" aria-label="Play selected recording" onClick={()=>setPlaying(true)}><Play size={28} fill="currentColor"/></button><div className="stage-caption"><span>{clock(r.start,timezone,true)}{r.end?` — ${clock(r.end,timezone,true)}`:''}</span></div></>}
+  return <section className="player-panel"><PlaybackStage playing={playing} videoRef={video} available={r.available}
+    src={media(r,r.proxy&&!original?'proxy':'original')} poster={r.poster?media(r,'poster'):undefined} posterAlt={`${r.camera_name} selected recording`}
+    onPlay={()=>setPlaying(true)} onError={()=>setFailed(true)}
+    placeholder={<><Video size={44}/><span>{r.status==='error'?'Preview unavailable':'Preview is being prepared'}</span></>}
+    unavailable={<><Video size={44}/><span>The original recording is no longer in the archive</span></>}
+    caption={<>{clock(r.start,timezone,true)}{r.end?` — ${clock(r.end,timezone,true)}`:''}</>}>
     {r.available&&!playing&&<span className="quality-badge">{r.height?`${r.height}p`:'Original'} {r.video_codec?.toUpperCase()}</span>}
     {r.available&&failed&&<div className="playback-error"><Film size={28}/><h3>Prepare this recording for your browser</h3><p>Your browser could not play the original format. A compatible copy keeps the original untouched.</p><button className="primary" disabled={preparing} onClick={prepare}>{preparing?<LoaderCircle className="spin" size={16}/>:<Sparkles size={16}/>} {preparing?'Preparing playback…':'Prepare compatible playback'}</button>{preparationFailed&&<p className="error-text">{proxyJob.error||'Preparation failed. Try again.'}</p>}</div>}
-  </div><div className="player-toolbar"><div className="player-title"><strong>{r.camera_name}</strong><span>{duration(r.duration)}</span></div><div className="player-actions">{r.available&&<ShareControls recordingId={r.id}/>}<button className={`icon-button ${r.bookmarked?'saved':''}`} aria-label={r.bookmarked?'Remove selected bookmark':'Bookmark selected recording'} onClick={onBookmark}><Bookmark size={17} fill={r.bookmarked?'currentColor':'none'}/></button>{r.available&&<a className="icon-button" aria-label="Download original recording" href={`${media(r,'original')}&download=true`}><ArrowDownToLine size={17}/></a>}<button className="icon-button" aria-label="Full screen" onClick={fullscreen} disabled={!playing}><Maximize2 size={17}/></button></div></div>
+  </PlaybackStage><div className="player-toolbar"><div className="player-title"><strong>{r.camera_name}</strong><span>{duration(r.duration)}</span></div><div className="player-actions">{r.available&&<ShareControls recordingId={r.id}/>}<button className={`icon-button ${r.bookmarked?'saved':''}`} aria-label={r.bookmarked?'Remove selected bookmark':'Bookmark selected recording'} onClick={onBookmark}><Bookmark size={17} fill={r.bookmarked?'currentColor':'none'}/></button>{r.available&&<a className="icon-button" aria-label="Download original recording" href={`${media(r,'original')}&download=true`}><ArrowDownToLine size={17}/></a>}<button className="icon-button" aria-label="Full screen" onClick={fullscreen} disabled={!playing}><Maximize2 size={17}/></button></div></div>
     {r.available&&<div className="playback-options"><span><ShieldCheck size={13}/>{r.proxy&&!original?'Compatible playback copy':'Original recording'}</span>{r.proxy?<button className="text-button" onClick={()=>{setOriginal(!original);setFailed(false);}}>{original?'Use compatible copy':'View original'}</button>:<button className="text-button" disabled={preparing} onClick={prepare}>{preparing?'Preparing compatible copy…':'Prepare compatible copy'}</button>}</div>}
   </section>;
 }

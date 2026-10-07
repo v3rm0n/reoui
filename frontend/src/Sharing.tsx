@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDownToLine, Check, Copy, LoaderCircle, Share2, X } from 'lucide-react';
+import { ArrowDownToLine, Check, Copy, LoaderCircle, Share2, Video, X } from 'lucide-react';
 import { api, clock, duration } from './api';
+import { PlaybackStage } from './PlaybackStage';
 
 type ShareLink = {id: string; created_at: number; expires_at: number};
 type CreatedShare = {id: string; url: string; expires_at: number};
@@ -69,6 +70,7 @@ export function SharedPlayer({token}: {token: string}) {
   const [recording, setRecording] = useState<SharedRecording | null>(null);
   const [error, setError] = useState('');
   const [failed, setFailed] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [original, setOriginal] = useState(false);
   const base = `/shared/${encodeURIComponent(token)}`;
   const mediaUrl = (kind: string) => `/api${base}/media/${kind}`;
@@ -76,7 +78,11 @@ export function SharedPlayer({token}: {token: string}) {
   return <main className="shared-page"><a className="shared-brand" href="/">reo<span>ui</span></a>
     {error ? <div className="gate-card"><h1>Recording unavailable</h1><p role="alert">{error}</p></div> : !recording ? <LoaderCircle className="spin"/> : <>
       <h1>{recording.camera_name}</h1><p>{recording.start ? new Intl.DateTimeFormat('en-GB', {timeZone: recording.timezone, dateStyle: 'long'}).format(recording.start * 1000) : 'Date unknown'} · {clock(recording.start, recording.timezone, true)} · {duration(recording.duration)}</p>
-      <section className="player-panel"><div className="player-stage"><video controls playsInline preload="metadata" src={mediaUrl(recording.proxy && !original ? 'proxy' : 'original')} poster={recording.poster ? mediaUrl('poster') : undefined} onError={() => setFailed(true)}/></div>
+      <section className="player-panel"><PlaybackStage playing={playing} src={mediaUrl(recording.proxy && !original ? 'proxy' : 'original')}
+        poster={recording.poster ? mediaUrl('poster') : undefined} posterAlt={`${recording.camera_name} selected recording`}
+        onPlay={() => setPlaying(true)} onError={() => setFailed(true)}
+        placeholder={<><Video size={44}/><span>Preview unavailable</span></>}
+        caption={clock(recording.start, recording.timezone, true)}/>
       <div className="player-toolbar"><span>Shared recording</span><a className="text-button" href={`${mediaUrl('original')}?download=true`}><ArrowDownToLine size={16}/> Download original</a></div></section>
       {failed && <p role="alert" className="error-text">Playback is unavailable. Try downloading the original or ask the owner to prepare a compatible copy.</p>}
       {recording.proxy && <button className="text-button" onClick={() => {setOriginal(!original); setFailed(false);}}>{original ? 'Use compatible copy' : 'View original'}</button>}
