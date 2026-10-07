@@ -24,6 +24,7 @@ class Settings:
     web: Path = Path("frontend/dist")
     auth_token: str = ""
     public_origin: str = ""
+    allowed_origins: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -45,12 +46,19 @@ class Settings:
             web=Path(os.environ.get("REOUI_WEB", "frontend/dist")),
             auth_token=os.environ.get("REOUI_AUTH_TOKEN", ""),
             public_origin=os.environ.get("REOUI_PUBLIC_ORIGIN", "").strip().rstrip("/"),
+            allowed_origins=tuple(
+                value.strip().rstrip("/")
+                for value in os.environ.get("REOUI_ALLOWED_ORIGINS", "").split(",")
+                if value.strip()
+            ),
         )
 
     def prepare(self) -> None:
         ZoneInfo(self.timezone)
-        if self.public_origin:
-            origin = urlsplit(self.public_origin)
+        for variable, value in (
+            [("REOUI_PUBLIC_ORIGIN", self.public_origin)] if self.public_origin else []
+        ) + [("REOUI_ALLOWED_ORIGINS", value) for value in self.allowed_origins]:
+            origin = urlsplit(value)
             if (
                 origin.scheme not in ("http", "https")
                 or not origin.hostname
@@ -60,7 +68,7 @@ class Settings:
                 or origin.query
                 or origin.fragment
             ):
-                raise ValueError("REOUI_PUBLIC_ORIGIN must be an HTTP(S) origin without a path")
+                raise ValueError(f"{variable} must be an HTTP(S) origin without a path")
         if self.cache_bytes < 0:
             raise ValueError("Cache budget must be nonnegative")
         # Never stat a possibly disconnected archive from the web process.

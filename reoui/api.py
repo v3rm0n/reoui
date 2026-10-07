@@ -4,6 +4,8 @@ import base64
 import hashlib
 import hmac
 import json
+import re
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -32,6 +34,10 @@ class Login(BaseModel):
     token: str = Field(max_length=256)
 
 
+class Share(BaseModel):
+    expires_in: int = Field(default=7 * 86400, ge=3600, le=30 * 86400)
+
+
 class Mapping(BaseModel):
     archive_camera_id: str
 
@@ -47,35 +53,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="ReoUI", version="0.1.0", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
     )
-    session_value = hashlib.sha256(settings.auth_token.encode()).hexdigest()
+
+    def session_hash(token: str) -> str:
+        # Changing the access token invalidates all previously issued sessions.
+        return hmac.new(settings.auth_token.encode(), token.encode(), hashlib.sha256).hexdigest()
 
     def authorized(request: Request) -> bool:
         if not settings.auth_token:
             return True
         bearer = request.headers.get("authorization", "").removeprefix("Bearer ")
-        return hmac.compare_digest(
-            request.cookies.get("reoui_session", ""), session_value
-        ) or hmac.compare_digest(bearer, settings.auth_token)
+        if hmac.compare_digest(bearer.encode(), settings.auth_token.encode()):
+            return True
+        cookie = request.cookies.get("reoui_session", "")
+        if not cookie:
+            return False
+        with connect(settings) as conn:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM auth_sessions WHERE token_hash=? AND expires_at>?",
+                    (session_hash(cookie), time.time()),
+                ).fetchone()
+                is not None
+            )
 
     @app.middleware("http")
     async def protection(request: Request, call_next):
-        if request.url.path.startswith("/api/") and request.url.path not in (
-            "/api/session",
-            "/api/login",
-            "/api/health",
+        public_share = request.method in ("GET", "HEAD") and re.fullmatch(
+            r"/api/shared/[A-Za-z0-9_-]{43}(?:/media/(?:original|proxy|poster))?", request.url.path
+        )
+        response = None
+        if (
+            request.url.path.startswith("/api/")
+            and not public_share
+            and request.url.path
+            not in (
+                "/api/session",
+                "/api/login",
+                "/api/health",
+            )
         ):
             if not authorized(request):
-                return JSONResponse({"detail": "Sign in to view the archive"}, status_code=401)
+                response = JSONResponse({"detail": "Sign in to view the archive"}, status_code=401)
         origin = request.headers.get("origin")
         expected_origin = settings.public_origin or f"{request.url.scheme}://{request.headers.get('host')}"
-        if request.method not in ("GET", "HEAD", "OPTIONS") and origin and origin != expected_origin:
-            return JSONResponse({"detail": "Cross-origin changes are not allowed"}, status_code=403)
-        response = await call_next(request)
+        permitted_origins = {expected_origin, *settings.allowed_origins}
+        if request.method not in ("GET", "HEAD", "OPTIONS") and origin and origin not in permitted_origins:
+            response = JSONResponse({"detail": "Cross-origin changes are not allowed"}, status_code=403)
+        if response is None:
+            response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
-        if request.url.path.startswith("/api/"):
-            response.headers.setdefault("Cache-Control", "no-store")
+        if request.url.path.startswith(("/api/", "/share/")):
+            response.headers["Cache-Control"] = "no-store"
+        if public_share or request.url.path.startswith("/share/"):
+            response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
         return response
 
     @app.get("/api/health")
@@ -220,18 +252,120 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/login")
     def login(body: Login, request: Request):
-        if not settings.auth_token or not hmac.compare_digest(body.token, settings.auth_token):
-            raise HTTPException(401, "Incorrect access token")
+        now = time.time()
+        peer = request.client.host if request.client else "unknown"
+        valid = bool(settings.auth_token) and hmac.compare_digest(
+            body.token.encode(), settings.auth_token.encode()
+        )
+        with connect(settings) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("DELETE FROM login_attempts WHERE reset_at<=?", (now,))
+            attempt = conn.execute("SELECT failures FROM login_attempts WHERE peer=?", (peer,)).fetchone()
+            if attempt and attempt["failures"] >= 10:
+                return JSONResponse(
+                    {"detail": "Too many sign-in attempts. Try again in five minutes."},
+                    status_code=429,
+                    headers={"Retry-After": "300"},
+                )
+            if not valid:
+                conn.execute(
+                    """INSERT INTO login_attempts VALUES(?,1,?) ON CONFLICT(peer)
+                    DO UPDATE SET failures=failures+1""",
+                    (peer, now + 300),
+                )
+                return JSONResponse({"detail": "Incorrect access token"}, status_code=401)
+            conn.execute("DELETE FROM login_attempts WHERE peer=?", (peer,))
+            conn.execute("DELETE FROM auth_sessions WHERE expires_at<=?", (now,))
+            conn.execute(
+                "DELETE FROM auth_sessions WHERE token_hash=?",
+                (session_hash(request.cookies.get("reoui_session", "")),),
+            )
+            token = secrets.token_urlsafe(32)
+            conn.execute("INSERT INTO auth_sessions VALUES(?,?)", (session_hash(token), now + 30 * 86400))
         response = JSONResponse({"authenticated": True})
         response.set_cookie(
             "reoui_session",
-            session_value,
+            token,
             httponly=True,
             samesite="strict",
-            secure=request.url.scheme == "https",
+            secure=settings.public_origin.startswith("https://") or request.url.scheme == "https",
             max_age=30 * 86400,
         )
         return response
+
+    @app.post("/api/logout")
+    def logout(request: Request):
+        with connect(settings) as conn:
+            conn.execute(
+                "DELETE FROM auth_sessions WHERE token_hash=?",
+                (session_hash(request.cookies.get("reoui_session", "")),),
+            )
+        response = JSONResponse({"authenticated": False})
+        response.delete_cookie("reoui_session", httponly=True, samesite="strict")
+        return response
+
+    @app.post("/api/recordings/{rid}/shares", status_code=201)
+    def create_share(rid: str, body: Share, request: Request):
+        now = time.time()
+        token = secrets.token_urlsafe(32)
+        share_id = uuid.uuid4().hex
+        expires_at = now + body.expires_in
+        with connect(settings) as conn:
+            if not conn.execute("SELECT 1 FROM recordings WHERE id=? AND available=1", (rid,)).fetchone():
+                raise HTTPException(404, "Recording is unavailable")
+            conn.execute(
+                "INSERT INTO recording_shares VALUES(?,?,?,?,?)",
+                (share_id, hashlib.sha256(token.encode()).hexdigest(), rid, now, expires_at),
+            )
+        origin = settings.public_origin or str(request.base_url).rstrip("/")
+        return {"id": share_id, "url": f"{origin}/share/{token}", "expires_at": expires_at}
+
+    @app.get("/api/recordings/{rid}/shares")
+    def list_shares(rid: str):
+        with connect(settings) as conn:
+            return [
+                dict(row)
+                for row in conn.execute(
+                    """SELECT id,created_at,expires_at FROM recording_shares
+                WHERE recording_id=? AND expires_at>? ORDER BY created_at DESC""",
+                    (rid, time.time()),
+                )
+            ]
+
+    @app.delete("/api/recordings/{rid}/shares/{share_id}")
+    def revoke_share(rid: str, share_id: str):
+        with connect(settings) as conn:
+            conn.execute("DELETE FROM recording_shares WHERE id=? AND recording_id=?", (share_id, rid))
+        return {"revoked": True}
+
+    def shared_recording(token: str):
+        with connect(settings) as conn:
+            row = conn.execute(
+                """SELECT r.*,c.name AS camera_name,s.expires_at FROM recording_shares s
+                JOIN recordings r ON r.id=s.recording_id JOIN cameras c ON c.id=r.camera_id
+                WHERE s.token_hash=? AND s.expires_at>? AND r.available=1""",
+                (hashlib.sha256(token.encode()).hexdigest(), time.time()),
+            ).fetchone()
+        if not row:
+            raise HTTPException(404, "This share link is invalid, expired, or revoked")
+        return row
+
+    @app.get("/api/shared/{token}")
+    def shared_details(token: str):
+        row = shared_recording(token)
+        # Only playback metadata: no archive paths, notes, camera connections, or jobs.
+        result = {
+            key: row[key] for key in ("camera_name", "start", "end", "duration", "video_codec", "expires_at")
+        }
+        result.update(poster=bool(row["poster"]), proxy=bool(row["proxy"]), timezone=settings.timezone)
+        return result
+
+    @app.api_route("/api/shared/{token}/media/{kind}", methods=["GET", "HEAD"])
+    def shared_media(token: str, kind: str, download: bool = False):
+        if kind not in ("original", "proxy", "poster"):
+            raise HTTPException(404)
+        row = shared_recording(token)
+        return media(row["id"], kind, download)
 
     @app.get("/api/status")
     def status():
@@ -523,7 +657,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 lane["first"][index] = lane["first"][index] or row["id"]
         return {"start": begin, "end": finish, "lanes": list(lanes.values()), "bin_seconds": step}
 
-    @app.get("/api/media/{rid}/{kind}")
+    @app.api_route("/api/media/{rid}/{kind}", methods=["GET", "HEAD"])
     def media(rid: str, kind: str, download: bool = False):
         if kind not in ("original", "poster", "sprite", "proxy"):
             raise HTTPException(404)

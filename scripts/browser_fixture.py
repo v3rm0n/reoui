@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -65,6 +66,7 @@ def main():
         data=root / "data",
         cache=root / "cache",
         stable_seconds=0,
+        auth_token=os.environ.get("REOUI_TEST_AUTH_TOKEN", ""),
         web=project / "frontend/dist",
     )
     initialize(settings)

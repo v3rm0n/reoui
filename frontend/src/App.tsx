@@ -3,13 +3,14 @@ import {
   Activity, ArrowDownToLine, ArrowRight, Bookmark, CalendarDays, Camera as CameraIcon,
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Database, Film, FolderOpen,
   HardDrive, Info, LayoutGrid, LoaderCircle, LockKeyhole, Maximize2, Menu, Play, RefreshCw,
-  ScanLine, Search, ShieldCheck, Sparkles, Video, X,
+  ScanLine, Search, ShieldCheck, Sparkles, Video, X, LogOut,
   PersonStanding, Car, PawPrint, Bell,
 } from 'lucide-react';
 import { api, bytes, clock, dayLabel, duration, media } from './api';
 import type { Camera, Page, Recording, Status, Timeline } from './api';
 import { formatTimeSlice, TimeRangeRail } from './TimeRangeRail';
 import type { TimeSlice } from './TimeRangeRail';
+import { ShareControls, SharedPlayer } from './Sharing';
 const LiveView = lazy(() => import('./LiveView').then(module => ({default: module.LiveView})));
 
 const labels: Record<string,string> = {person:'Person',vehicle:'Vehicle',animal:'Animal',motion:'Motion',timer:'Continuous',doorbell:'Doorbell',package:'Package',unknown:'Unknown',face:'Face',io:'I/O',crying:'Crying',crossline:'Line crossing',intrusion:'Intrusion',linger:'Lingering',forgotten_item:'Forgotten item',taken_item:'Taken item'};
@@ -22,13 +23,24 @@ function parseTimeSlice(params: URLSearchParams): TimeSlice | null {
 }
 
 export default function App() {
+  if (location.pathname.startsWith('/share/')) return <SharedPlayer token={location.pathname.slice(7)}/>;
+  return <AuthenticatedApp/>;
+}
+
+function AuthenticatedApp() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [connectionError, setConnectionError] = useState('');
-  useEffect(() => { api<{authenticated:boolean}>('/session').then(s => setAuthenticated(s.authenticated)).catch(e => setConnectionError(e.message)); }, []);
+  const [authRequired, setAuthRequired] = useState(false);
+  useEffect(() => { api<{authenticated:boolean;auth_required:boolean}>('/session').then(s => {setAuthenticated(s.authenticated);setAuthRequired(s.auth_required);}).catch(e => setConnectionError(e.message)); }, []);
+  useEffect(() => {
+    const expired = () => setAuthenticated(false);
+    window.addEventListener('reoui-session-expired', expired);
+    return () => window.removeEventListener('reoui-session-expired', expired);
+  }, []);
   if (connectionError) return <div className="gate"><Brand/><h1>Unable to reach the archive</h1><p>{connectionError}</p><button className="primary" onClick={() => location.reload()}>Try again</button></div>;
   if (authenticated === null) return <div className="gate"><Brand/><LoaderCircle className="spin"/><p>Opening your archive…</p></div>;
   if (!authenticated) return <Login onLogin={() => setAuthenticated(true)}/>;
-  return <Archive/>;
+  return <Archive authRequired={authRequired} onLogout={() => api('/logout', {method:'POST'}).then(() => setAuthenticated(false))}/>;
 }
 
 function Brand() { return <div className="brand"><span className="brand-mark"><ScanLine size={24}/></span><span>reo<span className="brand-ui">ui</span></span></div>; }
@@ -40,7 +52,7 @@ function Login({onLogin}:{onLogin:()=>void}) {
     {error && <p role="alert" className="error-text">{error}</p>}<button className="primary" type="submit">Open archive <ArrowRight size={16}/></button></form></div></main>;
 }
 
-function Archive() {
+function Archive({authRequired,onLogout}:{authRequired:boolean;onLogout:()=>Promise<void>}) {
   const initial = useRef(new URLSearchParams(location.search));
   const [view,setView] = useState('archive'); const [mobile,setMobile] = useState(false);
   const [status,setStatus] = useState<Status | null>(null); const [cameras,setCameras] = useState<Camera[]>([]);
@@ -152,6 +164,7 @@ function Archive() {
         {[['live','Live view',Video],['bookmarks','Bookmarks',Bookmark],['status','Indexing & storage',Database]].map(([key,label,Icon])=>{
           const NavIcon=Icon as typeof Film;return <button key={key as string} className={`nav-item ${view===key?'active':''}`} onClick={()=>{setView(key as string);setSelectedId('');setSelected(null);setMobile(false);}}><NavIcon size={18}/><span>{label as string}</span></button>;
         })}
+        {authRequired&&<button className="nav-item" onClick={()=>onLogout().catch(e=>setError(e.message))}><LogOut size={18}/><span>Sign out</span></button>}
       </nav>
     </aside>
     <main className="main-content"><header className="topbar"><button className="icon-button mobile-menu" aria-label="Open navigation" onClick={()=>setMobile(true)}><Menu size={20}/></button></header>
@@ -228,7 +241,7 @@ function Player({recording:r,timezone,onBookmark,onPrepared,onError}:{recording:
     <div className="player-shade"/><button className="large-play" aria-label="Play selected recording" onClick={()=>setPlaying(true)}><Play size={28} fill="currentColor"/></button><div className="stage-caption"><span>{clock(r.start,timezone,true)}{r.end?` — ${clock(r.end,timezone,true)}`:''}</span></div></>}
     {r.available&&!playing&&<span className="quality-badge">{r.height?`${r.height}p`:'Original'} {r.video_codec?.toUpperCase()}</span>}
     {r.available&&failed&&<div className="playback-error"><Film size={28}/><h3>Prepare this recording for your browser</h3><p>Your browser could not play the original format. A compatible copy keeps the original untouched.</p><button className="primary" disabled={preparing} onClick={prepare}>{preparing?<LoaderCircle className="spin" size={16}/>:<Sparkles size={16}/>} {preparing?'Preparing playback…':'Prepare compatible playback'}</button>{preparationFailed&&<p className="error-text">{proxyJob.error||'Preparation failed. Try again.'}</p>}</div>}
-  </div><div className="player-toolbar"><div className="player-title"><strong>{r.camera_name}</strong><span>{duration(r.duration)}</span></div><div className="player-actions"><button className={`icon-button ${r.bookmarked?'saved':''}`} aria-label={r.bookmarked?'Remove selected bookmark':'Bookmark selected recording'} onClick={onBookmark}><Bookmark size={17} fill={r.bookmarked?'currentColor':'none'}/></button>{r.available&&<a className="icon-button" aria-label="Download original recording" href={`${media(r,'original')}&download=true`}><ArrowDownToLine size={17}/></a>}<button className="icon-button" aria-label="Full screen" onClick={fullscreen} disabled={!playing}><Maximize2 size={17}/></button></div></div>
+  </div><div className="player-toolbar"><div className="player-title"><strong>{r.camera_name}</strong><span>{duration(r.duration)}</span></div><div className="player-actions">{r.available&&<ShareControls recordingId={r.id}/>}<button className={`icon-button ${r.bookmarked?'saved':''}`} aria-label={r.bookmarked?'Remove selected bookmark':'Bookmark selected recording'} onClick={onBookmark}><Bookmark size={17} fill={r.bookmarked?'currentColor':'none'}/></button>{r.available&&<a className="icon-button" aria-label="Download original recording" href={`${media(r,'original')}&download=true`}><ArrowDownToLine size={17}/></a>}<button className="icon-button" aria-label="Full screen" onClick={fullscreen} disabled={!playing}><Maximize2 size={17}/></button></div></div>
     {r.available&&<div className="playback-options"><span><ShieldCheck size={13}/>{r.proxy&&!original?'Compatible playback copy':'Original recording'}</span>{r.proxy?<button className="text-button" onClick={()=>{setOriginal(!original);setFailed(false);}}>{original?'Use compatible copy':'View original'}</button>:<button className="text-button" disabled={preparing} onClick={prepare}>{preparing?'Preparing compatible copy…':'Prepare compatible copy'}</button>}</div>}
   </section>;
 }

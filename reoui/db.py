@@ -65,6 +65,18 @@ CREATE TABLE IF NOT EXISTS recording_event_matches(
 CREATE UNIQUE INDEX IF NOT EXISTS active_job ON jobs(kind,target)
  WHERE status IN ('queued','running');
 CREATE INDEX IF NOT EXISTS queue_order ON jobs(status,priority DESC,id);
+CREATE TABLE IF NOT EXISTS auth_sessions(
+ token_hash TEXT PRIMARY KEY, expires_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS login_attempts(
+ peer TEXT PRIMARY KEY, failures INTEGER NOT NULL, reset_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS recording_shares(
+ id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
+ recording_id TEXT NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
+ created_at REAL NOT NULL, expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS shares_recording ON recording_shares(recording_id);
 CREATE TABLE IF NOT EXISTS state(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS live_streams(
  camera_id TEXT PRIMARY KEY REFERENCES cameras(id) ON DELETE CASCADE,

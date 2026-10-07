@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
 
+test.beforeEach(async ({page}) => {
+  if (process.env.REOUI_TEST_AUTH_TOKEN) {
+    await page.request.post('/api/login', {data: {token: process.env.REOUI_TEST_AUTH_TOKEN}});
+  }
+});
+
 test('archive, filters, browser playback, notes, bookmarks and navigation', async ({page},testInfo) => {
   const errors: string[]=[];
   page.on('pageerror',error=>errors.push(error.message));

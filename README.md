@@ -92,8 +92,9 @@ The image supports `linux/amd64` and `linux/arm64`. Pin a `sha-…` tag if you n
 | `REOUI_CACHE_DIR` | `./.local/cache` | Generated previews and playback copies |
 | `REOUI_CAMERAS_FILE` | `./.secrets/cameras.json` | Camera connection configuration |
 | `REOUI_BIND` / `REOUI_PORT` | `127.0.0.1` / `8090` | Host interface and port |
-| `REOUI_AUTH_TOKEN` | Empty | Optional application access token |
-| `REOUI_PUBLIC_ORIGIN` | Empty | Browser-facing origin for reverse-proxy deployments, e.g. `https://reoui.example.com` |
+| `REOUI_AUTH_TOKEN` | Empty | Archive sign-in token; set a long random value for internet access |
+| `REOUI_PUBLIC_ORIGIN` | Empty | External origin used for share links and reverse-proxy requests, e.g. `https://reoui.example.com` |
+| `REOUI_ALLOWED_ORIGINS` | Empty | Additional browser origins allowed for sign-in and changes, comma-separated |
 | `REOUI_TRUSTED_PROXIES` | `127.0.0.1` | Exact proxy peers trusted for forwarded headers |
 | `REOUI_TIMEZONE` | `Europe/Tallinn` | Filename interpretation and display timezone |
 | `REOUI_CACHE_BYTES` | `200000000000` | Accounted derivative cache limit, about 200 GB |
@@ -103,6 +104,10 @@ The image supports `linux/amd64` and `linux/arm64`. Pin a `sha-…` tag if you n
 | `REOUI_STABLE_SECONDS` | `30` | Minimum time since a file changed before indexing |
 | `REOUI_SCAN_TIMEOUT` | `180` | Maximum seconds without scan progress |
 | `REOUI_AUTO_PROXY_HOURS` | `24` | Automatically prepare recent incompatible clips; `0` disables |
+
+### Share a recording
+
+Set `REOUI_AUTH_TOKEN` and `REOUI_PUBLIC_ORIGIN` before exposing the app through an HTTPS reverse proxy. Sign in with the access token, select a recording, and click **Share recording** beside the playback controls. Create a link lasting 1, 7, or 30 days and copy it. Recipients can watch or download that recording without signing in. Revoke links in the same dialog.
 
 See [deployment and maintenance](docs/deployment.md) for remote access, Tailscale, Colima, backups, and updates.
 

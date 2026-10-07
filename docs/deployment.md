@@ -16,11 +16,29 @@ Back up the catalog using SQLite's backup API, or stop both services before copy
 
 ## Remote access
 
-Compose publishes the app on `127.0.0.1:8090` by default; `REOUI_BIND` and `REOUI_PORT` can change that host listener. The app also carries Docktail service labels for installations that use Docktail. For ordinary network exposure, configure a strong `REOUI_AUTH_TOKEN` and an HTTPS reverse proxy. The UI exchanges the token for an HttpOnly session cookie. All camera snapshots and live segments use the same application authentication.
+Compose publishes the app on `127.0.0.1:8090` by default; `REOUI_BIND` and `REOUI_PORT` can change that host listener. The app also carries Docktail service labels for installations that use Docktail. For ordinary network exposure, configure a strong `REOUI_AUTH_TOKEN` and an HTTPS reverse proxy. The UI exchanges the token for a random HttpOnly session cookie that expires after 30 days. Sign out revokes that session; changing the access token invalidates all existing sessions. Sign-in is limited to ten failed attempts per client address per five minutes. API clients can use `Authorization: Bearer <access-token>`. An empty token disables archive authentication, so do not leave it empty for public access. All camera snapshots and live segments use the same application authentication.
 
-Set `REOUI_PUBLIC_ORIGIN` in `.env` to the exact origin used in your browser, for example `https://reoui.example.com` (include the port if nonstandard; omit paths). Recreate the app container after changing it: `docker compose up -d app`. This lets POST and PATCH requests pass the same-origin check even when the proxy connects over HTTP or rewrites the Host header. Other origins remain blocked. Without this setting, the app compares the browser Origin against the request scheme and Host.
+Set `REOUI_PUBLIC_ORIGIN` in `.env` to the exact origin used in your browser, for example `https://reoui.example.com` (include the port if nonstandard; omit paths). Recreate the app container after changing it: `docker compose up -d app`. This origin is also used to generate absolute recording share links and to mark session cookies Secure for HTTPS deployments. This lets POST and PATCH requests pass the same-origin check even when the proxy connects over HTTP or rewrites the Host header. Other origins remain blocked. Without this setting, the app compares the browser Origin against the request scheme and Host.
+
+To use additional browser addresses, set `REOUI_ALLOWED_ORIGINS` to their exact origins, comma-separated (for example a Tailscale HTTPS address). Sign-in and changes are permitted from these addresses as well as `REOUI_PUBLIC_ORIGIN`; generated share links still use `REOUI_PUBLIC_ORIGIN`. Paths and wildcards are not accepted.
 
 Set `REOUI_TRUSTED_PROXIES` to the actual proxy peer address seen inside the app container, and have the proxy send `X-Forwarded-Proto` for the original scheme. Docker forwarding may appear as the Docker network gateway rather than `127.0.0.1`. Avoid wildcard trust. When running outside Compose, Uvicorn uses `FORWARDED_ALLOW_IPS` for this setting.
+
+### Internet access and recording links
+
+Generate a token with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'` and configure `.env`:
+
+```dotenv
+REOUI_AUTH_TOKEN=<generated-token>
+REOUI_PUBLIC_ORIGIN=https://reoui.example.com
+REOUI_TRUSTED_PROXIES=<proxy-peer-IP>
+```
+
+Point the hostname at your HTTPS reverse proxy and proxy the entire site to the app's listener (normally `http://127.0.0.1:8090`). Preserve video Range requests and disable proxy caching for `/api/` and `/share/`. The proxy must be able to reach the app, connect from the configured trusted peer address, and serve a valid TLS certificate. Recreate the app with `docker compose up -d app` after configuration changes.
+
+In a recording's playback toolbar, choose **Share recording**, select an expiry (1, 7, or 30 days), and create a link. Copy the URL while it is displayed: the database stores only a hash of its random 256-bit secret, so the URL cannot be retrieved later. **Active links → Revoke** immediately prevents new requests through that link. Links persist across app restarts, expire on the server, and stop working when a recording is unavailable. Only that recording's original, prepared playback copy, poster, and basic playback details are exposed. Notes, archive paths, other recordings, camera connections, and live streams remain private. Prepare a compatible playback copy before sharing recordings your recipient's browser cannot play.
+
+Share URLs act as credentials: anyone receiving one can watch and download the video until expiry or revocation. Avoid logging full `/share/` and `/api/shared/` URLs in the proxy or analytics. Revocation cannot remove copies already downloaded. The app disables caching on authenticated and shared API responses, sends a no-referrer policy, and tells crawlers not to index share pages. Without `REOUI_PUBLIC_ORIGIN`, link creation uses the incoming request origin; set it explicitly for internet deployments.
 
 ### Tailscale
 
